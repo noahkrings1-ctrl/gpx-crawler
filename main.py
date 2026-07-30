@@ -6,7 +6,7 @@ from parsers import HikrParser
 
 def main() -> None:
     """Download one Hikr page and parse its metadata."""
-    url = "https://www.hikr.org/tour/post12345.html"  # Replace with a real Hikr tour URL.
+    url = "https://www.hikr.org/tour/post202345.html"  # Replace with a real Hikr tour URL.
     html_dir = Path("data/html")
     html_dir.mkdir(parents=True, exist_ok=True)
     html_path = html_dir / "hikr_tour.html"
