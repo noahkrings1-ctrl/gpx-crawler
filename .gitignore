@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# VS Code
+.vscode/
+
+# Umgebungsvariablen
+.env
+
+# Betriebssystem
+Thumbs.db
+.DS_Store
+
+# Projektdaten die nicht ins Repo gehören
+data/html/*
+data/gpx/*
+data/exports/*
+!data/html/.gitkeep
+!data/gpx/.gitkeep
+!data/exports/.gitkeep
