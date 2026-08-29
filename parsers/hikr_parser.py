@@ -2,11 +2,23 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 
 class HikrParser:
     """Parse local Hikr.org HTML files and extract tour metadata."""
+
+    # Die deutschen Labels auf Hikr. Wir mappen sie auf unsere internen Keys.
+    LABEL_MAP = {
+        "region": "region",
+        "tour datum": "date",
+        "wandern schwierigkeit": "difficulty_hiking",
+        "hochtouren schwierigkeit": "difficulty_alpine",
+        "klettern schwierigkeit": "difficulty_climbing",
+        "aufstieg": "elevation_gain",
+        "abstieg": "elevation_loss",
+        "zeitbedarf": "time_required",
+    }
 
     def parse_local_html(self, html_path: str | Path, base_url: Optional[str] = None) -> dict:
         """Read an HTML file from disk and return extracted metadata."""
@@ -14,84 +26,72 @@ class HikrParser:
         html_text = html_path.read_text(encoding="utf-8")
         soup = BeautifulSoup(html_text, "lxml")
 
+        fiche = self._extract_fiche_rando(soup)
+
         metadata = {
             "title": self._extract_title(soup),
-            "region": self._extract_region(soup),
-            "date": self._extract_date(soup),
-            "difficulty": self._extract_difficulty(soup),
-            "distance": self._extract_distance(soup),
-            "elevation_gain": self._extract_elevation_gain(soup),
+            "region": fiche.get("region"),
+            "date": fiche.get("date"),
+            "difficulty_hiking": fiche.get("difficulty_hiking"),
+            "difficulty_alpine": fiche.get("difficulty_alpine"),
+            "difficulty_climbing": fiche.get("difficulty_climbing"),
+            "elevation_gain": fiche.get("elevation_gain"),
+            "elevation_loss": fiche.get("elevation_loss"),
+            "time_required": fiche.get("time_required"),
+            "distance": None,  # Nicht in HTML vorhanden, kommt spaeter aus GPX
             "gpx_url": self._extract_gpx_link(soup, base_url=base_url),
         }
-
         return metadata
 
     def _extract_title(self, soup: BeautifulSoup) -> Optional[str]:
-        candidates = ["h1", ".tour_title", ".title", "#title"]
-        for selector in candidates:
-            element = soup.select_one(selector)
-            if element and element.get_text(strip=True):
-                return element.get_text(strip=True)
+        """Der Tourtitel steht im h1 Tag mit der Klasse title."""
+        element = soup.select_one("h1.title")
+        if element:
+            return element.get_text(strip=True)
         return None
 
-    def _extract_region(self, soup: BeautifulSoup) -> Optional[str]:
-        return self._extract_value_by_labels(
-            soup,
-            labels=["region", "area", "location", "land"]
-        )
+    def _extract_fiche_rando(self, soup: BeautifulSoup) -> dict:
+        """
+        Liest die Metadaten Tabelle mit der Klasse fiche_rando.
+        Struktur ist immer <td class="fiche_rando_b">Label:</td><td class="fiche_rando">Wert</td>.
+        """
+        result: dict = {}
+        label_cells = soup.find_all("td", class_="fiche_rando_b")
 
-    def _extract_date(self, soup: BeautifulSoup) -> Optional[str]:
-        # Hikr often uses <time> tags or label/value pairs.
-        time_tag = soup.find("time")
-        if time_tag and time_tag.get_text(strip=True):
-            return time_tag.get_text(strip=True)
+        for label_cell in label_cells:
+            label_text = label_cell.get_text(strip=True).rstrip(":").strip().lower()
+            key = self.LABEL_MAP.get(label_text)
+            if key is None:
+                continue  # Label interessiert uns nicht, ueberspringen
 
-        return self._extract_value_by_labels(soup, labels=["date", "day"])
+            value_cell = label_cell.find_next_sibling("td")
+            if not isinstance(value_cell, Tag):
+                continue
 
-    def _extract_difficulty(self, soup: BeautifulSoup) -> Optional[str]:
-        return self._extract_value_by_labels(soup, labels=["difficulty", "diff", "grade"])
+            value = value_cell.get_text(" ", strip=True)
+            result[key] = self._clean_value(key, value)
 
-    def _extract_distance(self, soup: BeautifulSoup) -> Optional[str]:
-        return self._extract_value_by_labels(soup, labels=["distance", "length"])
+        return result
 
-    def _extract_elevation_gain(self, soup: BeautifulSoup) -> Optional[str]:
-        return self._extract_value_by_labels(soup, labels=["elevation", "gain", "up", "ascent"])
+    def _clean_value(self, key: str, value: str) -> str:
+        """
+        Feld spezifische Nachbearbeitung. Bei Region entfernen wir das
+        Fuellzeichen und behalten die Kette Welt, Schweiz, Uri.
+        """
+        if key == "region":
+            # Aus "Welt » Schweiz » Uri" wird eine Liste, wir behalten aber den String
+            return value.replace("»", ",").replace("  ", " ").strip()
+        return value.strip()
 
     def _extract_gpx_link(self, soup: BeautifulSoup, base_url: Optional[str] = None) -> Optional[str]:
+        """
+        Findet den ersten Link, der auf eine .gpx Datei zeigt.
+        Hikr benutzt absolute URLs auf die Subdomain f.hikr.org.
+        """
         for anchor in soup.find_all("a", href=True):
             href = anchor["href"]
-            if ".gpx" in href.lower():
+            if href.lower().endswith(".gpx"):
                 if base_url is not None:
                     return urljoin(base_url, href)
                 return href
-
-        return None
-
-    def _extract_value_by_labels(self, soup: BeautifulSoup, labels: list[str]) -> Optional[str]:
-        lower_labels = [label.lower() for label in labels]
-
-        for element in soup.find_all(["span", "strong", "b", "td", "th", "li", "div"]):
-            text = element.get_text(" ", strip=True)
-            if not text:
-                continue
-
-            normalized = text.lower().strip()
-            for label in lower_labels:
-                if normalized.startswith(label + ":") or normalized.startswith(label + " -"):
-                    parts = text.split(":", 1)
-                    if len(parts) > 1 and parts[1].strip():
-                        return parts[1].strip()
-
-                if label in normalized and ":" in normalized:
-                    parts = normalized.split(":", 1)
-                    if len(parts) > 1 and parts[1].strip():
-                        return parts[1].strip()
-
-            # If the label appears inside a text node, look for the next sibling value.
-            for label in lower_labels:
-                if label in normalized:
-                    sibling = element.find_next_sibling()
-                    if sibling and sibling.get_text(strip=True):
-                        return sibling.get_text(strip=True)
-
         return None
