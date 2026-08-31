@@ -10,6 +10,7 @@ GPX Dateien samt Metadaten extrahiert.
 - data      Lokale Ablage von HTML, GPX und Exports
 - tests     Testcode
 - main.py   Orchestrierung
+- Verzeichnis erstellen in welchem Metadaten filterbar sind
 
 ## Setup
 
