@@ -14,9 +14,15 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
   Format 2026-07-12, das Rohfeld date bleibt daneben erhalten
 - GpxParser berechnet die Distanz aus der GPX Datei mit gpxpy, horizontal
   in Kilometern, Routen ohne Track werden mitgezaehlt
-- main.py laeuft durch die ganze Kette: HTML laden, parsen, GPX laden,
-  Distanz berechnen, Metadaten ausgeben
-- Tests in tests/ laufen gruen (22), Netzwerkzugriffe sind im Test ueber
+- main.py arbeitet die Liste TOUR_URLS ab: HTML laden, parsen, GPX laden,
+  Distanz berechnen, Uebersicht als Tabelle ausgeben
+- TOUR_URLS enthaelt zwoelf echte Hikr Touren mit Bandbreite, von T1
+  Wandern bis Hochtour ZS-, acht davon mit GPX Datei
+- Ein Fehlschlag bricht den Lauf nicht ab, Ergebnisse und Fehler werden
+  getrennt gesammelt, zwischen zwei Aufrufen liegt eine Pause
+- HTML wird je Tour unter dem Namen aus der URL abgelegt und bei einem
+  erneuten Lauf wiederverwendet, siehe REUSE_LOCAL_HTML
+- Tests in tests/ laufen gruen (27), Netzwerkzugriffe sind im Test ueber
   monkeypatch ersetzt, GPX Dateien werden als Fixture geschrieben
 - pyproject.toml konfiguriert pytest mit pythonpath und testpaths
 - Erfolgreich getestet an einer echten Hikr Tour (Sunnig Wichel)
@@ -41,7 +47,6 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 - Fehlerbehandlung ueber eigene Exceptions wie DownloadError
 
 ## Danach geplant
-- Orchestrator in main.py fuer Listen von URLs
 - Erweiterung des Parsers um Extraktion des Beschreibungstexts (main_text)
 - Lokale SQLite Datenbank als zentrale Ablage aller Tourmetadaten
 - Filterfunktionen ueber Sportart, Region, Schwierigkeit und Dauer
