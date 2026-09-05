@@ -7,15 +7,25 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 
 ## Aktueller Stand
 - Downloader mit realistischen Browser Headern und brotli Support
+- Downloader Methode download_gpx legt GPX Dateien nach data/gpx ab, benannt
+  nach Datum und Tourtitel, z.B. 2026-07-12-sunnig-wichel-via-nordgrat.gpx
 - HikrParser extrahiert Metadaten aus der Tabelle mit Klasse fiche_rando
-- Test in tests/test_hikr_parser.py laeuft gruen gegen synthetisches HTML
+- HikrParser liefert zusaetzlich date_iso, das normalisierte Tourdatum im
+  Format 2026-07-12, das Rohfeld date bleibt daneben erhalten
+- GpxParser berechnet die Distanz aus der GPX Datei mit gpxpy, horizontal
+  in Kilometern, Routen ohne Track werden mitgezaehlt
+- main.py laeuft durch die ganze Kette: HTML laden, parsen, GPX laden,
+  Distanz berechnen, Metadaten ausgeben
+- Tests in tests/ laufen gruen (22), Netzwerkzugriffe sind im Test ueber
+  monkeypatch ersetzt, GPX Dateien werden als Fixture geschrieben
 - pyproject.toml konfiguriert pytest mit pythonpath und testpaths
 - Erfolgreich getestet an einer echten Hikr Tour (Sunnig Wichel)
-- Distanz kommt spaeter aus GPX, nicht aus HTML
+- Distanz stammt aus der GPX Datei, nicht aus dem HTML
 
 ## Architektur
 - crawler/downloader.py     Klasse Downloader mit DownloadError
 - parsers/hikr_parser.py    Klasse HikrParser mit LABEL_MAP
+- parsers/gpx_parser.py     Klasse GpxParser mit GpxParseError
 - data/html                 Lokale HTML Ablage, per gitignore ausgeschlossen
 - data/gpx                  Lokale GPX Ablage, per gitignore ausgeschlossen
 - tests                     pytest Tests
@@ -23,7 +33,7 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 
 ## Konventionen
 - Python 3.14 im venv unter Windows 11
-- requests und BeautifulSoup als Kernbibliotheken
+- requests, BeautifulSoup und gpxpy als Kernbibliotheken
 - pytest fuer Tests, konfiguriert ueber pyproject.toml
 - Kleine, haeufige Commits mit klaren Botschaften auf Deutsch
 - Umlaute korrekt, keine unnoetigen Sonderzeichen
@@ -31,8 +41,6 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 - Fehlerbehandlung ueber eigene Exceptions wie DownloadError
 
 ## Danach geplant
-- Downloader Methode download_gpx fuer GPX Dateien nach data/gpx
-- Berechnung der Distanz aus GPX mit gpxpy
 - Orchestrator in main.py fuer Listen von URLs
 - Erweiterung des Parsers um Extraktion des Beschreibungstexts (main_text)
 - Lokale SQLite Datenbank als zentrale Ablage aller Tourmetadaten
