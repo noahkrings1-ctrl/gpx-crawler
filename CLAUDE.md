@@ -22,7 +22,15 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
   getrennt gesammelt, zwischen zwei Aufrufen liegt eine Pause
 - HTML wird je Tour unter dem Namen aus der URL abgelegt und bei einem
   erneuten Lauf wiederverwendet, siehe REUSE_LOCAL_HTML
-- Tests in tests/ laufen gruen (27), Netzwerkzugriffe sind im Test ueber
+- HikrParser liefert die Zahlenfelder elevation_gain_m, elevation_loss_m,
+  time_required_min und duration_days, dazu region_leaf und sport
+- Zeitbedarf hat zwei Formate. 5:00 wird zu 300 Minuten, 6 Tage landet in
+  duration_days. Eine Umrechnung in Minuten waere irrefuehrend
+- TourDatabase legt die Metadaten in data/tours.sqlite3 ab, Schluessel ist
+  die Quelle URL, ein zweiter Lauf aktualisiert statt zu verdoppeln
+- Ein echter Lauf hat zwoelf Touren abgelegt, Filter ueber Sportart,
+  Region, Aufstieg und Distanz funktionieren
+- Tests in tests/ laufen gruen (40), Netzwerkzugriffe sind im Test ueber
   monkeypatch ersetzt, GPX Dateien werden als Fixture geschrieben
 - pyproject.toml konfiguriert pytest mit pythonpath und testpaths
 - Erfolgreich getestet an einer echten Hikr Tour (Sunnig Wichel)
@@ -32,6 +40,7 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 - crawler/downloader.py     Klasse Downloader mit DownloadError
 - parsers/hikr_parser.py    Klasse HikrParser mit LABEL_MAP
 - parsers/gpx_parser.py     Klasse GpxParser mit GpxParseError
+- storage/database.py       Klasse TourDatabase, einziges SQL im Projekt
 - data/html                 Lokale HTML Ablage, per gitignore ausgeschlossen
 - data/gpx                  Lokale GPX Ablage, per gitignore ausgeschlossen
 - tests                     pytest Tests
@@ -39,7 +48,8 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 
 ## Konventionen
 - Python 3.14 im venv unter Windows 11
-- requests, BeautifulSoup und gpxpy als Kernbibliotheken
+- requests, BeautifulSoup und gpxpy als Kernbibliotheken, sqlite3 aus der
+  Standardbibliothek fuer die Ablage
 - pytest fuer Tests, konfiguriert ueber pyproject.toml
 - Kleine, haeufige Commits mit klaren Botschaften auf Deutsch
 - Umlaute korrekt, keine unnoetigen Sonderzeichen
@@ -48,7 +58,6 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 
 ## Danach geplant
 - Erweiterung des Parsers um Extraktion des Beschreibungstexts (main_text)
-- Lokale SQLite Datenbank als zentrale Ablage aller Tourmetadaten
 - Filterfunktionen ueber Sportart, Region, Schwierigkeit und Dauer
 - Kommandozeilen Interface fuer Datenbankabfragen
 - Spaeter zweiter Parser fuer Gipfelbuch
@@ -62,7 +71,8 @@ durchsuchbare persoenliche Tourdatenbank sein.
 - SQLite als lokale Datei, keine Serverabhaengigkeit
 - Tabelle mit strukturierten Metadaten (Titel, Region, Datum, Schwierigkeit,
   Dauer, Aufstieg, Abstieg, Distanz, Sportart, Sprache, GPX Pfad, Quelle URL)
-- Optional SQLAlchemy als ORM, um SQL nicht direkt schreiben zu muessen
+- Kein ORM, sqlite3 aus der Standardbibliothek. Das gesamte SQL steht in
+  storage/database.py, ein Wechsel auf SQLAlchemy betraefe nur dieses Modul
 - Migration von JSON oder CSV zur Datenbank soll gut dokumentiert sein
 
 ### Tag System
