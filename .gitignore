@@ -22,3 +22,4 @@ data/exports/*
 !data/html/.gitkeep
 !data/gpx/.gitkeep
 !data/exports/.gitkeep
+data/*.sqlite3

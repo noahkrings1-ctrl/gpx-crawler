@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -7,6 +8,7 @@ from crawler import Downloader
 from crawler.downloader import DownloadError
 from parsers import GpxParser, HikrParser
 from parsers.gpx_parser import GpxParseError
+from storage import TourDatabase
 
 
 # Echte Hikr Touren, bewusst mit Bandbreite ausgewaehlt: Wandern bis Hochtour,
@@ -79,6 +81,7 @@ def run_tours(
     html_dir: Path = HTML_DIR,
     gpx_dir: Path = GPX_DIR,
     delay: float = REQUEST_DELAY_SECONDS,
+    database: TourDatabase | None = None,
 ) -> tuple[list[dict], list[tuple[str, Exception]]]:
     """
     Arbeitet die Liste ab und liefert Ergebnisse und Fehlschlaege getrennt.
@@ -98,11 +101,17 @@ def run_tours(
     for index, url in enumerate(urls, start=1):
         print(f"[{index}/{len(urls)}] {url}")
         try:
-            results.append(
-                process_tour(url, downloader, hikr_parser, gpx_parser, html_dir, gpx_dir)
+            metadata = process_tour(
+                url, downloader, hikr_parser, gpx_parser, html_dir, gpx_dir
             )
-        except (DownloadError, GpxParseError, OSError) as exc:
-            # Erwartbare Stoerungen: Netz, HTTP Fehler, kaputte GPX, Dateisystem.
+            # Direkt ablegen, damit ein Abbruch mitten im Lauf die bereits
+            # gelesenen Touren nicht verwirft.
+            if database is not None:
+                database.upsert_tour(metadata)
+            results.append(metadata)
+        except (DownloadError, GpxParseError, OSError, sqlite3.Error) as exc:
+            # Erwartbare Stoerungen: Netz, HTTP Fehler, kaputte GPX,
+            # Dateisystem, Datenbank.
             # Alles andere lassen wir bewusst durchschlagen, das waeren Fehler
             # im eigenen Code und die sollen laut auffallen.
             print(f"    uebersprungen, {type(exc).__name__}: {exc}")
@@ -151,8 +160,10 @@ def main() -> None:
     # UnicodeEncodeError beenden, Ersatzzeichen sind das kleinere Uebel.
     sys.stdout.reconfigure(errors="replace")
 
-    results, failures = run_tours(TOUR_URLS)
-    print_summary(results, failures)
+    with TourDatabase() as database:
+        results, failures = run_tours(TOUR_URLS, database=database)
+        print_summary(results, failures)
+        print(f"Datenbank {database.db_path}: {database.count()} Touren abgelegt")
 
 
 if __name__ == "__main__":
