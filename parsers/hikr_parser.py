@@ -55,9 +55,15 @@ class HikrParser:
             "difficulty_hiking": fiche.get("difficulty_hiking"),
             "difficulty_alpine": fiche.get("difficulty_alpine"),
             "difficulty_climbing": fiche.get("difficulty_climbing"),
+            "region_leaf": self._region_leaf(fiche.get("region")),
+            "sport": self._derive_sport(fiche),
             "elevation_gain": fiche.get("elevation_gain"),
+            "elevation_gain_m": self._parse_meters(fiche.get("elevation_gain")),
             "elevation_loss": fiche.get("elevation_loss"),
+            "elevation_loss_m": self._parse_meters(fiche.get("elevation_loss")),
             "time_required": fiche.get("time_required"),
+            "time_required_min": self._parse_minutes(fiche.get("time_required")),
+            "duration_days": self._parse_days(fiche.get("time_required")),
             "distance": None,  # Nicht in HTML vorhanden, kommt spaeter aus GPX
             "gpx_url": self._extract_gpx_link(soup, base_url=base_url),
         }
@@ -135,6 +141,68 @@ class HikrParser:
             return date(int(year), month, int(day)).isoformat()
         except ValueError:
             return None  # Zum Beispiel der 32. Juli
+
+    def _region_leaf(self, region: Optional[str]) -> Optional[str]:
+        """
+        Aus "Welt , Schweiz , Uri" wird Uri, der spezifischste Teil der Kette.
+        Damit laesst sich spaeter gezielt nach einer Region filtern, ohne
+        jedesmal den ganzen Pfad zu vergleichen.
+        """
+        if not region:
+            return None
+        parts = [part.strip() for part in region.split(",") if part.strip()]
+        return parts[-1] if parts else None
+
+    def _derive_sport(self, fiche: dict) -> Optional[str]:
+        """
+        Hikr fuehrt je Sportart eine eigene Schwierigkeitsskala. Welche
+        gefuellt ist, verraet die Art der Tour.
+
+        Die Reihenfolge ist nicht beliebig. Die Hochtouren Skala steht nur
+        bei echten Hochtouren. Eine UIAA Note neben einer T Note markiert
+        dagegen nur eine Kletterstelle, der Charakter bleibt eine Wanderung.
+        Deshalb schlaegt Wandern das Klettern, aber nicht die Hochtour.
+        """
+        if fiche.get("difficulty_alpine"):
+            return "Hochtour"
+        if fiche.get("difficulty_hiking"):
+            return "Wandern"
+        if fiche.get("difficulty_climbing"):
+            return "Klettern"
+        return None
+
+    def _parse_meters(self, value: Optional[str]) -> Optional[int]:
+        """
+        Aus "1270 m" wird 1270. Eine Schweizer Tausendertrennung wie 1'270
+        wird mit entfernt. Ohne Zahl gibt es None.
+        """
+        if not value:
+            return None
+        match = re.search(r"(\d[\d'\s.]*)\s*m", value)
+        if not match:
+            return None
+        digits = re.sub(r"[^0-9]", "", match.group(1))
+        return int(digits) if digits else None
+
+    def _parse_minutes(self, value: Optional[str]) -> Optional[int]:
+        """
+        Aus "5:00" werden 300 Minuten. Mehrtaegige Angaben wie "6 Tage"
+        ergeben bewusst None, siehe _parse_days. Eine Umrechnung in Minuten
+        waere irrefuehrend, weil sie Gehzeit und Kalendertage vermischt.
+        """
+        if not value:
+            return None
+        match = re.search(r"(\d{1,3}):(\d{2})", value)
+        if not match:
+            return None
+        return int(match.group(1)) * 60 + int(match.group(2))
+
+    def _parse_days(self, value: Optional[str]) -> Optional[int]:
+        """Aus "6 Tage" wird 6. Alles andere ergibt None."""
+        if not value:
+            return None
+        match = re.search(r"(\d{1,2})\s*Tage?", value, re.IGNORECASE)
+        return int(match.group(1)) if match else None
 
     def _extract_gpx_link(self, soup: BeautifulSoup, base_url: Optional[str] = None) -> Optional[str]:
         """

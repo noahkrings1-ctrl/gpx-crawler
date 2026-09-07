@@ -71,3 +71,58 @@ def test_hikr_parser_returns_none_for_unreadable_dates() -> None:
     assert parser._parse_date_iso("") is None
     assert parser._parse_date_iso("irgendwann im Sommer") is None
     assert parser._parse_date_iso("32 Juli 2026") is None
+
+
+def test_hikr_parser_converts_elevation_to_meters() -> None:
+    parser = HikrParser()
+
+    assert parser._parse_meters("1270 m") == 1270
+    assert parser._parse_meters("1'270 m") == 1270
+    assert parser._parse_meters("200 m") == 200
+    assert parser._parse_meters(None) is None
+    assert parser._parse_meters("keine Angabe") is None
+
+
+def test_hikr_parser_separates_hours_from_multi_day_tours() -> None:
+    """
+    Hikr fuehrt den Zeitbedarf in zwei Formaten. "6 Tage" in Minuten
+    umzurechnen wuerde Gehzeit und Kalendertage vermischen, deshalb
+    zwei getrennte Felder.
+    """
+    parser = HikrParser()
+
+    assert parser._parse_minutes("5:00") == 300
+    assert parser._parse_minutes("4:15") == 255
+    assert parser._parse_minutes("10:00") == 600
+    assert parser._parse_minutes("6 Tage") is None
+
+    assert parser._parse_days("6 Tage") == 6
+    assert parser._parse_days("2 Tage") == 2
+    assert parser._parse_days("5:00") is None
+    assert parser._parse_days(None) is None
+
+
+def test_hikr_parser_takes_the_most_specific_region() -> None:
+    parser = HikrParser()
+
+    assert parser._region_leaf("Welt , Schweiz , Uri") == "Uri"
+    assert parser._region_leaf("Welt , Liechtenstein") == "Liechtenstein"
+    assert parser._region_leaf(None) is None
+
+
+def test_hikr_parser_derives_the_sport_from_the_difficulty_scale() -> None:
+    """
+    Eine UIAA Note neben einer T Note markiert nur eine Kletterstelle.
+    Die Tour bleibt eine Wanderung. Nur die Hochtouren Skala schlaegt beides.
+    """
+    parser = HikrParser()
+
+    assert parser._derive_sport({"difficulty_hiking": "T4 - Alpinwandern"}) == "Wandern"
+    assert parser._derive_sport({"difficulty_climbing": "IV (UIAA-Skala)"}) == "Klettern"
+    assert parser._derive_sport(
+        {"difficulty_hiking": "T5", "difficulty_climbing": "II (UIAA-Skala)"}
+    ) == "Wandern"
+    assert parser._derive_sport(
+        {"difficulty_hiking": "T4", "difficulty_alpine": "ZS-", "difficulty_climbing": "III"}
+    ) == "Hochtour"
+    assert parser._derive_sport({}) is None
