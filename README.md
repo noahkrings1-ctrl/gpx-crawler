@@ -32,7 +32,11 @@ Letzter Lauf ueber zwoelf echte Touren: 12 gelesen, 8 mit GPX Datei,
 - Distanzberechnung aus der GPX Datei mit gpxpy
 - Ein Fehlschlag beendet den Lauf nicht, Ergebnisse und Fehler werden
   getrennt gesammelt
-- 27 Tests, alle ohne Netzwerkzugriff
+- Ablage aller Metadaten in einer lokalen SQLite Datei, Schluessel ist die
+  Quelle URL, ein zweiter Lauf aktualisiert statt zu verdoppeln
+- Filter ueber Region, Sportart, Schwierigkeit, Aufstieg und Gehzeit,
+  beliebig kombinierbar
+- 62 Tests, alle ohne Netzwerkzugriff und ohne Spuren auf der Platte
 
 ### Grundarchitektur
 
@@ -41,7 +45,8 @@ Drei Schichten, die sich gegenseitig nichts ueber ihre Interna verraten.
     crawler/downloader.py   holt Bytes aus dem Netz, kennt kein HTML
     parsers/hikr_parser.py  kennt Hikr, liefert ein Metadaten Dictionary
     parsers/gpx_parser.py   kennt GPX, liefert Distanz und Punktzahl
-    main.py                 verbindet die drei, kennt die Reihenfolge
+    storage/tour_store.py   kennt SQL, sonst weiss niemand davon
+    main.py                 verbindet die vier, kennt die Reihenfolge
 
 Der Ablauf je Tour:
 
@@ -62,14 +67,42 @@ Zwei Entscheidungen, die den Aufbau tragen:
   Monatsnamen, der GpxParser kennt Tracks und Routen. Kommen weitere
   Sprachen dazu, waechst nur der HikrParser.
 
+## Die Tourdatenbank
+
+Alle Metadaten liegen in `data/tours.sqlite3`, einer einzelnen Datei ohne
+Server. Die Datei ist per gitignore ausgeschlossen und bleibt lokal.
+
+Gefiltert wird ueber `find_tours`. Jeder nicht gesetzte Filter bedeutet
+keine Einschraenkung:
+
+    from storage import TourStore
+
+    with TourStore() as store:
+        touren = store.find_tours(
+            region="Graubuenden",
+            sport="Wandern",
+            min_elevation_gain=800,
+            max_elevation_gain=1500,
+            max_duration_minutes=360,
+        )
+
+Drei Eigenheiten, die man kennen sollte:
+
+- Die Region ist in Land, Hauptregion und Gebiet zerlegt. Ein Filter prueft
+  alle Stufen, "Schweiz" und "Oberengadin" funktionieren also beide, ohne
+  dass man weiss, auf welcher Stufe der Begriff liegt.
+- Umlaute sind egal. "Graubuenden" und "Graubuenden" finden dasselbe, weil
+  Suchbegriff und Spaltenwert vorher normalisiert werden.
+- Mehrtaegige Touren haben keine Gehzeit in Minuten, sondern eine Anzahl
+  Tage. Ein Filter auf die Gehzeit laesst sie deshalb heraus, eine
+  Sechstagestour ist keine Tour unter fuenf Stunden.
+
 ## Roadmap
 
 ### Als naechstes
-- Lokale SQLite Datenbank als zentrale Ablage der Tourmetadaten
-- Aufstieg, Abstieg und Zeitbedarf numerisch ablegen, damit sich danach
-  filtern laesst
-- Filterfunktionen ueber Sportart, Region, Schwierigkeit und Dauer
-- Kommandozeilen Interface fuer die Datenbankabfrage
+- Kommandozeilen Interface fuer die Datenbankabfrage, damit die Filter
+  ohne Python Zeile erreichbar sind
+- Extraktion des Beschreibungstexts
 
 ### Spaeter
 - Mehrsprachigkeit im Parser (de, fr, it, en)

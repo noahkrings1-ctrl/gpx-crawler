@@ -26,11 +26,21 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
   time_required_min und duration_days, dazu region_leaf und sport
 - Zeitbedarf hat zwei Formate. 5:00 wird zu 300 Minuten, 6 Tage landet in
   duration_days. Eine Umrechnung in Minuten waere irrefuehrend
-- TourDatabase legt die Metadaten in data/tours.sqlite3 ab, Schluessel ist
+- TourStore legt die Metadaten in data/tours.sqlite3 ab, Schluessel ist
   die Quelle URL, ein zweiter Lauf aktualisiert statt zu verdoppeln
+- HikrParser zerlegt die Regionskette in region_country, region_main und
+  region_area. Die mittlere Stufe ist in der Schweiz der Kanton, in
+  Oesterreich eine Gebirgsgruppe, daher der neutrale Name
+- find_tours filtert nach Region, Sportart, Schwierigkeit, Aufstieg von
+  bis und maximaler Gehzeit. Fehlender Filter heisst kein Filter
+- Suchbegriffe und Spaltenwerte laufen durch normalise, damit
+  Oesterreich und Oesterreich dasselbe finden. SQLite vergleicht bei
+  LIKE sonst nur ASCII
+- Mehrtaegige Touren haben time_required_min NULL und fallen bei einem
+  Filter auf die Gehzeit heraus, das ist gewollt
 - Ein echter Lauf hat zwoelf Touren abgelegt, Filter ueber Sportart,
   Region, Aufstieg und Distanz funktionieren
-- Tests in tests/ laufen gruen (40), Netzwerkzugriffe sind im Test ueber
+- Tests in tests/ laufen gruen (62), Netzwerkzugriffe sind im Test ueber
   monkeypatch ersetzt, GPX Dateien werden als Fixture geschrieben
 - pyproject.toml konfiguriert pytest mit pythonpath und testpaths
 - Erfolgreich getestet an einer echten Hikr Tour (Sunnig Wichel)
@@ -40,7 +50,8 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 - crawler/downloader.py     Klasse Downloader mit DownloadError
 - parsers/hikr_parser.py    Klasse HikrParser mit LABEL_MAP
 - parsers/gpx_parser.py     Klasse GpxParser mit GpxParseError
-- storage/database.py       Klasse TourDatabase, einziges SQL im Projekt
+- storage/tour_store.py     Klasse TourStore mit TourStoreError,
+                            einziges SQL im Projekt
 - data/html                 Lokale HTML Ablage, per gitignore ausgeschlossen
 - data/gpx                  Lokale GPX Ablage, per gitignore ausgeschlossen
 - tests                     pytest Tests
@@ -58,7 +69,6 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 
 ## Danach geplant
 - Erweiterung des Parsers um Extraktion des Beschreibungstexts (main_text)
-- Filterfunktionen ueber Sportart, Region, Schwierigkeit und Dauer
 - Kommandozeilen Interface fuer Datenbankabfragen
 - Spaeter zweiter Parser fuer Gipfelbuch
 
@@ -72,7 +82,9 @@ durchsuchbare persoenliche Tourdatenbank sein.
 - Tabelle mit strukturierten Metadaten (Titel, Region, Datum, Schwierigkeit,
   Dauer, Aufstieg, Abstieg, Distanz, Sportart, Sprache, GPX Pfad, Quelle URL)
 - Kein ORM, sqlite3 aus der Standardbibliothek. Das gesamte SQL steht in
-  storage/database.py, ein Wechsel auf SQLAlchemy betraefe nur dieses Modul
+  storage/tour_store.py, ein Wechsel auf SQLAlchemy betraefe nur dieses
+  Modul. Kein sqlite3.Error verlaesst die Ablage, alles wird zu
+  TourStoreError
 - Migration von JSON oder CSV zur Datenbank soll gut dokumentiert sein
 
 ### Tag System
