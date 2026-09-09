@@ -126,3 +126,45 @@ def test_hikr_parser_derives_the_sport_from_the_difficulty_scale() -> None:
         {"difficulty_hiking": "T4", "difficulty_alpine": "ZS-", "difficulty_climbing": "III"}
     ) == "Hochtour"
     assert parser._derive_sport({}) is None
+
+
+def test_hikr_parser_splits_the_region_into_levels() -> None:
+    """
+    Die erste Stufe heisst bei Hikr immer Welt und faellt weg. Danach
+    folgen Land, Hauptregion und Gebiet, je nach Tour unvollstaendig.
+    """
+    parser = HikrParser()
+
+    assert parser._split_region("Welt , Schweiz , Graubuenden , Oberengadin") == (
+        "Schweiz",
+        "Graubuenden",
+        "Oberengadin",
+    )
+    assert parser._split_region("Welt , Schweiz , Uri") == ("Schweiz", "Uri", None)
+    assert parser._split_region("Welt , Liechtenstein") == ("Liechtenstein", None, None)
+    assert parser._split_region(None) == (None, None, None)
+    assert parser._split_region("") == (None, None, None)
+
+
+def test_hikr_parser_region_levels_work_without_the_world_prefix() -> None:
+    """Fehlt die Stufe Welt, darf nichts verrutschen."""
+    parser = HikrParser()
+
+    assert parser._split_region("Schweiz , Wallis") == ("Schweiz", "Wallis", None)
+
+
+def test_hikr_parser_keeps_region_leaf_alongside_the_levels() -> None:
+    """
+    Die mittlere Stufe ist in der Schweiz der Kanton, in Oesterreich eine
+    Gebirgsgruppe. Deshalb der neutrale Name, und region_leaf bleibt
+    zusaetzlich als spezifischster Teil erhalten.
+    """
+    parser = HikrParser()
+    chain = "Welt , Oesterreich , Zentrale Ostalpen , Oetztaler Alpen"
+
+    assert parser._split_region(chain) == (
+        "Oesterreich",
+        "Zentrale Ostalpen",
+        "Oetztaler Alpen",
+    )
+    assert parser._region_leaf(chain) == "Oetztaler Alpen"

@@ -46,6 +46,7 @@ class HikrParser:
         soup = BeautifulSoup(html_text, "lxml")
 
         fiche = self._extract_fiche_rando(soup)
+        region_country, region_main, region_area = self._split_region(fiche.get("region"))
 
         metadata = {
             "title": self._extract_title(soup),
@@ -56,6 +57,9 @@ class HikrParser:
             "difficulty_alpine": fiche.get("difficulty_alpine"),
             "difficulty_climbing": fiche.get("difficulty_climbing"),
             "region_leaf": self._region_leaf(fiche.get("region")),
+            "region_country": region_country,
+            "region_main": region_main,
+            "region_area": region_area,
             "sport": self._derive_sport(fiche),
             "elevation_gain": fiche.get("elevation_gain"),
             "elevation_gain_m": self._parse_meters(fiche.get("elevation_gain")),
@@ -152,6 +156,33 @@ class HikrParser:
             return None
         parts = [part.strip() for part in region.split(",") if part.strip()]
         return parts[-1] if parts else None
+
+    def _split_region(
+        self, region: Optional[str]
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """
+        Zerlegt die Regionskette in Land, Hauptregion und Gebiet.
+
+        Aus "Welt , Schweiz , Graubuenden , Oberengadin" wird
+        (Schweiz, Graubuenden, Oberengadin), aus "Welt , Liechtenstein"
+        wird (Liechtenstein, None, None).
+
+        Die erste Stufe heisst bei Hikr immer Welt und traegt keine
+        Information, sie faellt weg. Die mittlere Stufe ist in der Schweiz
+        der Kanton, in Oesterreich aber eine Gebirgsgruppe wie
+        "Zentrale Ostalpen". Deshalb der neutrale Name Hauptregion, eine
+        Spalte namens Kanton waere fuer alle uebrigen Laender falsch.
+        """
+        if not region:
+            return (None, None, None)
+
+        parts = [part.strip() for part in region.split(",") if part.strip()]
+        if parts and parts[0].lower() == "welt":
+            parts = parts[1:]
+
+        # Auf drei Stufen auffuellen, fehlende bleiben None.
+        padded = (parts + [None, None, None])[:3]
+        return (padded[0], padded[1], padded[2])
 
     def _derive_sport(self, fiche: dict) -> Optional[str]:
         """
