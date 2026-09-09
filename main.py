@@ -1,4 +1,3 @@
-import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -8,7 +7,7 @@ from crawler import Downloader
 from crawler.downloader import DownloadError
 from parsers import GpxParser, HikrParser
 from parsers.gpx_parser import GpxParseError
-from storage import TourDatabase
+from storage import TourStore, TourStoreError
 
 
 # Echte Hikr Touren, bewusst mit Bandbreite ausgewaehlt: Wandern bis Hochtour,
@@ -81,7 +80,7 @@ def run_tours(
     html_dir: Path = HTML_DIR,
     gpx_dir: Path = GPX_DIR,
     delay: float = REQUEST_DELAY_SECONDS,
-    database: TourDatabase | None = None,
+    database: TourStore | None = None,
 ) -> tuple[list[dict], list[tuple[str, Exception]]]:
     """
     Arbeitet die Liste ab und liefert Ergebnisse und Fehlschlaege getrennt.
@@ -109,7 +108,7 @@ def run_tours(
             if database is not None:
                 database.upsert_tour(metadata)
             results.append(metadata)
-        except (DownloadError, GpxParseError, OSError, sqlite3.Error) as exc:
+        except (DownloadError, GpxParseError, OSError, TourStoreError) as exc:
             # Erwartbare Stoerungen: Netz, HTTP Fehler, kaputte GPX,
             # Dateisystem, Datenbank.
             # Alles andere lassen wir bewusst durchschlagen, das waeren Fehler
@@ -160,7 +159,7 @@ def main() -> None:
     # UnicodeEncodeError beenden, Ersatzzeichen sind das kleinere Uebel.
     sys.stdout.reconfigure(errors="replace")
 
-    with TourDatabase() as database:
+    with TourStore() as database:
         results, failures = run_tours(TOUR_URLS, database=database)
         print_summary(results, failures)
         print(f"Datenbank {database.db_path}: {database.count()} Touren abgelegt")
