@@ -373,3 +373,24 @@ def test_sport_filter_ignores_case(filled_store) -> None:
     assert titles(filled_store.find_tours(sport="hochtour")) == {
         "Ortler via neue Olaf Reinstadler-Route"
     }
+
+
+def test_descending_reverses_the_order(filled_store) -> None:
+    aufsteigend = filled_store.find_tours(order_by="elevation_gain_m")
+    absteigend = filled_store.find_tours(order_by="elevation_gain_m", descending=True)
+
+    hoehen = [tour["elevation_gain_m"] for tour in aufsteigend]
+    assert hoehen == sorted(hoehen)
+    assert [tour["elevation_gain_m"] for tour in absteigend] == sorted(
+        hoehen, reverse=True
+    )
+
+
+def test_empty_fields_stay_last_in_both_directions(filled_store) -> None:
+    """
+    Eine Tour ohne Datum darf auch beim Umdrehen nicht nach vorne rutschen.
+    Leere Felder sind keine besonders kleinen oder grossen Werte, sie
+    gehoeren ans Ende.
+    """
+    assert filled_store.find_tours()[-1]["date_iso"] is None
+    assert filled_store.find_tours(descending=True)[-1]["date_iso"] is None

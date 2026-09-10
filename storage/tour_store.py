@@ -243,6 +243,7 @@ class TourStore:
         max_elevation_gain: Optional[int] = None,
         max_duration_minutes: Optional[int] = None,
         order_by: str = "date_iso",
+        descending: bool = False,
         limit: Optional[int] = None,
     ) -> list[dict]:
         """
@@ -301,8 +302,10 @@ class TourStore:
         query = "SELECT * FROM tours"
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-        # Leere Felder ans Ende, sonst stuenden sie in SQLite ganz vorne.
-        query += f" ORDER BY {order_by} IS NULL, {order_by}"
+        # Leere Felder ans Ende, sonst stuenden sie in SQLite ganz vorne,
+        # und zwar in beiden Sortierrichtungen.
+        direction = "DESC" if descending else "ASC"
+        query += f" ORDER BY {order_by} IS NULL, {order_by} {direction}"
 
         if limit is not None:
             query += " LIMIT ?"
