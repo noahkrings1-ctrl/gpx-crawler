@@ -38,9 +38,11 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
   LIKE sonst nur ASCII
 - Mehrtaegige Touren haben time_required_min NULL und fallen bei einem
   Filter auf die Gehzeit heraus, das ist gewollt
+- query.py ist das Suchinterface, uebersetzt Argumente in find_tours und
+  gibt eine Tabelle aus. --max-dauer versteht 5:30 und 330
 - Ein echter Lauf hat zwoelf Touren abgelegt, Filter ueber Sportart,
   Region, Aufstieg und Distanz funktionieren
-- Tests in tests/ laufen gruen (62), Netzwerkzugriffe sind im Test ueber
+- Tests in tests/ laufen gruen (84), Netzwerkzugriffe sind im Test ueber
   monkeypatch ersetzt, GPX Dateien werden als Fixture geschrieben
 - pyproject.toml konfiguriert pytest mit pythonpath und testpaths
 - Erfolgreich getestet an einer echten Hikr Tour (Sunnig Wichel)
@@ -56,6 +58,7 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 - data/gpx                  Lokale GPX Ablage, per gitignore ausgeschlossen
 - tests                     pytest Tests
 - main.py                   Einstiegspunkt fuer manuelle Laeufe
+- query.py                  Suchinterface mit Tabellenausgabe
 
 ## Konventionen
 - Python 3.14 im venv unter Windows 11
@@ -69,7 +72,6 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
 
 ## Danach geplant
 - Erweiterung des Parsers um Extraktion des Beschreibungstexts (main_text)
-- Kommandozeilen Interface fuer Datenbankabfragen
 - Spaeter zweiter Parser fuer Gipfelbuch
 
 ## Langfristige Vision

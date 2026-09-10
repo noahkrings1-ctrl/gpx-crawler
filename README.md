@@ -36,7 +36,8 @@ Letzter Lauf ueber zwoelf echte Touren: 12 gelesen, 8 mit GPX Datei,
   Quelle URL, ein zweiter Lauf aktualisiert statt zu verdoppeln
 - Filter ueber Region, Sportart, Schwierigkeit, Aufstieg und Gehzeit,
   beliebig kombinierbar
-- 62 Tests, alle ohne Netzwerkzugriff und ohne Spuren auf der Platte
+- Suchinterface query.py mit Tabellenausgabe auf der Kommandozeile
+- 84 Tests, alle ohne Netzwerkzugriff und ohne Spuren auf der Platte
 
 ### Grundarchitektur
 
@@ -72,8 +73,30 @@ Zwei Entscheidungen, die den Aufbau tragen:
 Alle Metadaten liegen in `data/tours.sqlite3`, einer einzelnen Datei ohne
 Server. Die Datei ist per gitignore ausgeschlossen und bleibt lokal.
 
-Gefiltert wird ueber `find_tours`. Jeder nicht gesetzte Filter bedeutet
-keine Einschraenkung:
+### Suchen auf der Kommandozeile
+
+`query.py` ist das Suchinterface. Jeder nicht gesetzte Filter bedeutet keine
+Einschraenkung, ohne Angabe kommt die ganze Ablage:
+
+    python query.py --region Schweiz --sportart Wandern
+    python query.py --max-aufstieg 1500 --max-dauer 5:30
+    python query.py --schwierigkeit T4 --min-aufstieg 800
+    python query.py --sortierung distance_km --absteigend --limit 5
+
+Die Ausgabe ist eine Tabelle mit Datum, Sportart, Region, Schwierigkeit,
+Aufstieg, Dauer, Distanz und Titel:
+
+    Datum       Sportart  Region       Schwierigkeit       Aufstieg  Dauer  Distanz    Titel
+    2026-08-01  Wandern   Tessin       T3 - anspruchsv...  650 m     5:00   16.83 km   Passo Bornengo
+    2026-08-12  Wandern   Uri          T5 - anspruchsv...  1270 m    5:30   13.08 km   Laeged und Schaechentaler
+    2026-09-02  Wandern   Nidwalden    T4 - Alpinwandern   1380 m    4:00   24.17 km   Ronengrat & Klettergarten
+
+    3 Touren gefunden.
+
+`--max-dauer` versteht beide Schreibweisen, `5:30` und `330`. Alle Optionen
+zeigt `python query.py --help`.
+
+### Aus Python heraus
 
     from storage import TourStore
 
@@ -100,9 +123,8 @@ Drei Eigenheiten, die man kennen sollte:
 ## Roadmap
 
 ### Als naechstes
-- Kommandozeilen Interface fuer die Datenbankabfrage, damit die Filter
-  ohne Python Zeile erreichbar sind
 - Extraktion des Beschreibungstexts
+- Mehrsprachigkeit im Parser (de, fr, it, en)
 
 ### Spaeter
 - Mehrsprachigkeit im Parser (de, fr, it, en)
@@ -129,5 +151,7 @@ Tests:
 - crawler   Download von Webseiten und Dateien
 - parsers   Extraktion aus Webseiten und aus GPX Dateien
 - data      Lokale Ablage von HTML, GPX und Exports, nicht im Repo
+- storage   Ablage der Metadaten in SQLite
 - tests     Testcode
 - main.py   Orchestrierung ueber die Liste TOUR_URLS
+- query.py  Suche in der Ablage mit Tabellenausgabe
