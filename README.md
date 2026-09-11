@@ -1,65 +1,73 @@
 # GPX Webcrawler
 
-Ein Python Crawler, der Tourenberichte auf Hikr.org analysiert und
-GPX Dateien samt Metadaten extrahiert. Ziel ist eine durchsuchbare
-persoenliche Tourdatenbank.
+Ein Python Crawler, der Tourenberichte auf Hikr.org liest, die GPX Dateien
+herunterlaedt und alle Metadaten in einer lokalen, durchsuchbaren
+Tourdatenbank ablegt.
 
-## Zwischenstand September 2026
+## Stand September 2026
 
-Die Kette steht und laeuft gegen die echte Website. Eine Liste von Hikr URLs
-wird abgearbeitet, jede Tour gelesen, die verlinkte GPX Datei geladen und
-vermessen, das Ergebnis als Tabelle ausgegeben.
+Die ganze Kette steht und laeuft gegen die echte Website:
 
-Letzter Lauf ueber zwoelf echte Touren: 12 gelesen, 8 mit GPX Datei,
-0 Fehlschlaege.
+    Hikr URL -> Metadaten -> GPX Datei -> Distanz -> SQLite -> Suche mit query.py
 
-    Datum         Distanz  Schwierigkeit          Titel
-    2023-06-18   92.98 km  T2 - Bergwandern       Meraner Hoehenweg
-    2026-08-01   16.83 km  T3 - anspruchsvolles B Passo Bornengo
-    2026-08-12   13.08 km  T5 - anspruchsvolles A Laeged und Schaechentaler Windgaellen
-    2026-08-29   19.06 km  ZS-                    Ortler via neue Olaf Reinstadler-Route
-    2026-09-02   24.17 km  T4 - Alpinwandern      Ronengrat & Klettergarten Gummen
+Die Ablage enthaelt zwoelf echte Touren, 11 Wanderungen und 1 Hochtour aus
+der Schweiz (6), Oesterreich (3), Italien (2) und Liechtenstein (1). 8 davon
+haben eine GPX Datei. Letzter Lauf: 12 gelesen, 0 Fehlschlaege.
 
 ### Was funktioniert
 
+Crawler
+
 - Download von Hikr Seiten mit realistischen Browser Headern und brotli
-- Extraktion der Metadaten aus der Tabelle mit der Klasse fiche_rando:
-  Titel, Region, Datum, drei Schwierigkeitsskalen, Aufstieg, Abstieg,
-  Zeitbedarf, GPX Link
-- Normalisiertes Tourdatum, aus "12 Juli 2026" wird 2026-07-12
-- GPX Download nach data/gpx, benannt nach Datum und Tourtitel, zum Beispiel
+- GPX Download nach data/gpx, benannt nach Datum und Titel, zum Beispiel
   2026-08-29-ortler-via-neue-olaf-reinstadler-route.gpx
-- Distanzberechnung aus der GPX Datei mit gpxpy
-- Ein Fehlschlag beendet den Lauf nicht, Ergebnisse und Fehler werden
-  getrennt gesammelt
-- Ablage aller Metadaten in einer lokalen SQLite Datei, Schluessel ist die
-  Quelle URL, ein zweiter Lauf aktualisiert statt zu verdoppeln
-- Filter ueber Region, Sportart, Schwierigkeit, Aufstieg und Gehzeit,
-  beliebig kombinierbar
-- Suchinterface query.py mit Tabellenausgabe auf der Kommandozeile
+- Ein Fehlschlag beendet den Lauf nicht. Bereits geladenes HTML wird
+  wiederverwendet, zwischen zwei Aufrufen liegt eine Pause
+
+Parser
+
+- Metadaten aus der Tabelle fiche_rando: Titel, Region, Datum, drei
+  Schwierigkeitsskalen, Aufstieg, Abstieg, Zeitbedarf, GPX Link
+- Zahlen statt Text: Aufstieg und Abstieg in Metern, Gehzeit in Minuten,
+  mehrtaegige Touren als Anzahl Tage, Datum als 2026-07-12
+- Region zerlegt in Land, Hauptregion und Gebiet
+- Sportart abgeleitet aus der Schwierigkeitsskala
+- Distanz aus der GPX Datei mit gpxpy
+
+Ablage und Suche
+
+- SQLite Datei data/tours.sqlite3. Schluessel ist die Quelle URL, ein
+  zweiter Lauf aktualisiert statt zu verdoppeln
+- Filter nach Region, Sportart, einer oder mehreren Schwierigkeiten,
+  Aufstieg von bis und maximaler Gehzeit, beliebig kombinierbar
+- Suchinterface query.py mit Tabellenausgabe
+
+Tests
+
 - 96 Tests, alle ohne Netzwerkzugriff und ohne Spuren auf der Platte
 
 ### Grundarchitektur
 
-Drei Schichten, die sich gegenseitig nichts ueber ihre Interna verraten.
+Jeder Baustein kennt nur sein eigenes Fachgebiet:
 
     crawler/downloader.py   holt Bytes aus dem Netz, kennt kein HTML
     parsers/hikr_parser.py  kennt Hikr, liefert ein Metadaten Dictionary
     parsers/gpx_parser.py   kennt GPX, liefert Distanz und Punktzahl
     storage/tour_store.py   kennt SQL, sonst weiss niemand davon
-    main.py                 verbindet die vier, kennt die Reihenfolge
+    main.py                 fuehrt die Kette fuer die Liste TOUR_URLS aus
+    query.py                uebersetzt Kommandozeilenargumente in eine Suche
 
-Der Ablauf je Tour:
+Der Ablauf je Tour in main.py:
 
-    URL -> HTML nach data/html -> Metadaten Dictionary
-                                       |
-                                  GPX Link
-                                       |
-                            GPX Datei nach data/gpx -> Distanz
-                                       |
-                            vollstaendige Metadaten
+    URL -> HTML nach data/html -> HikrParser -> Metadaten Dictionary
+                                                       |
+                                                   GPX Link
+                                                       |
+                                  GPX Datei nach data/gpx -> GpxParser -> Distanz
+                                                       |
+                                  TourStore.upsert_tour -> data/tours.sqlite3
 
-Zwei Entscheidungen, die den Aufbau tragen:
+Drei Entscheidungen, die den Aufbau tragen:
 
 - Der Downloader parst nichts. Er bekommt Titel und Datum uebergeben und
   weiss nicht, woher sie stammen. Deshalb kann spaeter ein Gipfelbuch
@@ -67,6 +75,9 @@ Zwei Entscheidungen, die den Aufbau tragen:
 - Formatwissen liegt beim jeweiligen Parser. Der HikrParser kennt deutsche
   Monatsnamen, der GpxParser kennt Tracks und Routen. Kommen weitere
   Sprachen dazu, waechst nur der HikrParser.
+- Das gesamte SQL steht in storage/tour_store.py. Kein sqlite3.Error
+  verlaesst die Ablage, alles wird zu TourStoreError. Ein Wechsel auf
+  SQLAlchemy betraefe nur dieses eine Modul.
 
 ## Die Tourdatenbank
 
@@ -98,9 +109,7 @@ Aufstieg, Dauer, Distanz und Titel:
 
 `--schwierigkeit` nimmt einen oder mehrere Werte. `--schwierigkeit T4 T5` und
 `--schwierigkeit T4 --schwierigkeit T5` sind gleichwertig. Mehrere Werte gelten
-untereinander als oder, mit den uebrigen Filtern bleibt es bei und. Verglichen
-wird als Teiltext in allen drei Skalen: T3 trifft auch T3+, ZS auch ZS-, II
-aber auch III.
+untereinander als oder, mit den uebrigen Filtern bleibt es bei und.
 
 Alle Optionen zeigt `python query.py --help`.
 
@@ -110,33 +119,52 @@ Alle Optionen zeigt `python query.py --help`.
 
     with TourStore() as store:
         touren = store.find_tours(
-            region="Graubuenden",
+            region="Schweiz",
             sport="Wandern",
+            difficulty=["T4", "T5"],
             min_elevation_gain=800,
             max_elevation_gain=1500,
             max_duration_minutes=360,
         )
 
-Drei Eigenheiten, die man kennen sollte:
+Mit den aktuellen Daten liefert das zwei Touren: Laeged und Schaechentaler
+Windgaellen (T5, Uri) und Ronengrat (T4, Nidwalden).
+
+### Worauf man beim Filtern achten sollte
 
 - Die Region ist in Land, Hauptregion und Gebiet zerlegt. Ein Filter prueft
   alle Stufen, "Schweiz" und "Oberengadin" funktionieren also beide, ohne
   dass man weiss, auf welcher Stufe der Begriff liegt.
-- Umlaute sind egal. "Graubuenden" und "Graubuenden" finden dasselbe, weil
+- Umlaute sind egal. "Graubünden" und "Graubuenden" finden dasselbe, weil
   Suchbegriff und Spaltenwert vorher normalisiert werden.
 - Mehrtaegige Touren haben keine Gehzeit in Minuten, sondern eine Anzahl
   Tage. Ein Filter auf die Gehzeit laesst sie deshalb heraus, eine
   Sechstagestour ist keine Tour unter fuenf Stunden.
+- Die Schwierigkeit wird als Teiltext in allen drei Skalen verglichen. T3
+  trifft auch T3+ und ZS auch ZS-, II aber auch III. Einzelne Buchstaben wie
+  S oder L treffen fast jede Tour.
+
+## Bekannte Grenzen
+
+- Die Schwierigkeit laesst sich nicht als Bereich filtern, "bis WS" geht noch
+  nicht.
+- Der Parser kennt nur deutschsprachige Hikr Seiten. Die Spalte language
+  existiert, wird aber nicht befuellt.
+- Es gibt keine Schemamigration. Neue Spalten brauchen eine neue
+  Datenbankdatei, beim Neuaufbau wird das HTML wiederverwendet, die GPX
+  Dateien werden neu geladen.
+- Die zu crawlenden Touren stehen als feste Liste TOUR_URLS in main.py.
 
 ## Roadmap
 
 ### Als naechstes
+
 - Extraktion des Beschreibungstexts
 - Mehrsprachigkeit im Parser (de, fr, it, en)
 
 ### Spaeter
-- Mehrsprachigkeit im Parser (de, fr, it, en)
-- Extraktion des Beschreibungstexts
+
+- Bereichsfilter fuer die Schwierigkeit, zum Beispiel bis WS
 - Schluesselwort Extraktion aus Tourbeschreibungen
 - Automatische Tag Vergabe (z.B. bruechig, lohnenswert, ausgesetzt,
   familientauglich)
@@ -149,6 +177,7 @@ Drei Eigenheiten, die man kennen sollte:
     venv\Scripts\activate
     pip install -r requirements.txt
     python main.py
+    python query.py --help
 
 Tests:
 
@@ -158,8 +187,8 @@ Tests:
 
 - crawler   Download von Webseiten und Dateien
 - parsers   Extraktion aus Webseiten und aus GPX Dateien
-- data      Lokale Ablage von HTML, GPX und Exports, nicht im Repo
 - storage   Ablage der Metadaten in SQLite
+- data      Lokale Ablage von HTML, GPX und der Datenbank, nicht im Repo
 - tests     Testcode
-- main.py   Orchestrierung ueber die Liste TOUR_URLS
+- main.py   Crawl Lauf ueber die Liste TOUR_URLS
 - query.py  Suche in der Ablage mit Tabellenausgabe

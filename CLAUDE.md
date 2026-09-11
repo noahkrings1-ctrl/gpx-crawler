@@ -3,78 +3,116 @@
 ## Ziel
 Python Crawler, der Tourenberichte auf Hikr.org analysiert
 und GPX Dateien samt Metadaten extrahiert. Spaeter erweiterbar um weitere Websites wie Gipfelbuch.
-Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen 
+Aufbau einer Hochtouren Metadaten Datenbank, mit der gezielt Regionen gefiltert und gesucht werden können.
 
-## Aktueller Stand
+## Aktueller Stand (September 2026)
+
+Die Kette steht: Hikr URL -> Metadaten -> GPX -> Distanz -> SQLite -> Suche
+mit query.py. Die Ablage enthaelt zwoelf echte Touren, acht davon mit GPX
+Datei. 96 Tests laufen gruen.
+
+### Crawler
 - Downloader mit realistischen Browser Headern und brotli Support
-- Downloader Methode download_gpx legt GPX Dateien nach data/gpx ab, benannt
-  nach Datum und Tourtitel, z.B. 2026-07-12-sunnig-wichel-via-nordgrat.gpx
-- HikrParser extrahiert Metadaten aus der Tabelle mit Klasse fiche_rando
-- HikrParser liefert zusaetzlich date_iso, das normalisierte Tourdatum im
-  Format 2026-07-12, das Rohfeld date bleibt daneben erhalten
-- GpxParser berechnet die Distanz aus der GPX Datei mit gpxpy, horizontal
-  in Kilometern, Routen ohne Track werden mitgezaehlt
-- main.py arbeitet die Liste TOUR_URLS ab: HTML laden, parsen, GPX laden,
-  Distanz berechnen, Uebersicht als Tabelle ausgeben
-- TOUR_URLS enthaelt zwoelf echte Hikr Touren mit Bandbreite, von T1
-  Wandern bis Hochtour ZS-, acht davon mit GPX Datei
-- Ein Fehlschlag bricht den Lauf nicht ab, Ergebnisse und Fehler werden
-  getrennt gesammelt, zwischen zwei Aufrufen liegt eine Pause
-- HTML wird je Tour unter dem Namen aus der URL abgelegt und bei einem
-  erneuten Lauf wiederverwendet, siehe REUSE_LOCAL_HTML
-- HikrParser liefert die Zahlenfelder elevation_gain_m, elevation_loss_m,
-  time_required_min und duration_days, dazu region_leaf und sport
-- Zeitbedarf hat zwei Formate. 5:00 wird zu 300 Minuten, 6 Tage landet in
+- download_gpx legt GPX Dateien nach data/gpx ab, benannt nach Datum und
+  Titel, z.B. 2026-07-12-sunnig-wichel-via-nordgrat.gpx. Gespeichert wird als
+  Bytes, eine Pruefung auf das gpx Wurzelelement faengt HTML Fehlerseiten ab
+- main.py arbeitet die Liste TOUR_URLS ab, zwoelf echte Touren von T1 bis
+  Hochtour ZS-. Ein Fehlschlag bricht den Lauf nicht ab, zwischen zwei
+  Aufrufen liegen 1.5 Sekunden
+- Vorhandenes HTML wird wiederverwendet (REUSE_LOCAL_HTML), GPX Dateien werden
+  bei jedem Lauf neu geladen
+
+### Parser
+- HikrParser liest die Tabelle fiche_rando ueber LABEL_MAP, nur deutsche Labels
+- Rohfelder bleiben erhalten, daneben stehen normalisierte Felder: date_iso,
+  elevation_gain_m, elevation_loss_m, time_required_min, duration_days
+- Der Zeitbedarf hat zwei Formate. 5:00 wird zu 300 Minuten, 6 Tage landet in
   duration_days. Eine Umrechnung in Minuten waere irrefuehrend
-- TourStore legt die Metadaten in data/tours.sqlite3 ab, Schluessel ist
-  die Quelle URL, ein zweiter Lauf aktualisiert statt zu verdoppeln
-- HikrParser zerlegt die Regionskette in region_country, region_main und
-  region_area. Die mittlere Stufe ist in der Schweiz der Kanton, in
-  Oesterreich eine Gebirgsgruppe, daher der neutrale Name
-- find_tours filtert nach Region, Sportart, Schwierigkeit, Aufstieg von
-  bis und maximaler Gehzeit. Fehlender Filter heisst kein Filter
-- Suchbegriffe und Spaltenwerte laufen durch normalise, damit
-  Oesterreich und Oesterreich dasselbe finden. SQLite vergleicht bei
-  LIKE sonst nur ASCII
-- Mehrtaegige Touren haben time_required_min NULL und fallen bei einem
-  Filter auf die Gehzeit heraus, das ist gewollt
-- query.py ist das Suchinterface, uebersetzt Argumente in find_tours und
-  gibt eine Tabelle aus. --max-dauer versteht 5:30 und 330
-- --schwierigkeit nimmt mehrere Werte, untereinander oder, mit den
-  uebrigen Filtern und. action extend verhindert, dass ein zweites
-  --schwierigkeit den ersten Wert still ueberschreibt
-- Ein echter Lauf hat zwoelf Touren abgelegt, Filter ueber Sportart,
-  Region, Aufstieg und Distanz funktionieren
-- Tests in tests/ laufen gruen (96), Netzwerkzugriffe sind im Test ueber
-  monkeypatch ersetzt, GPX Dateien werden als Fixture geschrieben
+- Die Region ist zerlegt in region_country, region_main und region_area, dazu
+  region_leaf. region_main ist in der Schweiz der Kanton, in Oesterreich eine
+  Gebirgsgruppe, daher der neutrale Name
+- sport wird aus der Schwierigkeitsskala abgeleitet: Hochtour vor Wandern vor
+  Klettern. Eine UIAA Note neben einer T Note ist nur eine Kletterstelle
+- GpxParser berechnet die Distanz horizontal in Kilometern mit gpxpy. Routen
+  ohne Track werden mitgezaehlt, ohne verwertbare Punkte gibt es None statt 0.0
+
+### Ablage
+- TourStore in storage/tour_store.py, Datei data/tours.sqlite3 mit 25 Spalten.
+  Schluessel ist source_url, upsert statt Duplikat, created_at bleibt erhalten
+- find_tours filtert nach region, sport, difficulty, min_elevation_gain,
+  max_elevation_gain und max_duration_minutes, dazu order_by, descending und
+  limit. Fehlender Filter heisst kein Filter
+- region und difficulty pruefen mehrere Spalten mit OR. Verglichen wird als
+  Teiltext, beide Seiten laufen vorher durch normalise (klein geschrieben,
+  Umlaute ausgeschrieben), damit "Österreich" und "Oesterreich" dasselbe finden
+- difficulty nimmt einen String oder eine Liste, mehrere Werte gelten als oder.
+  Leere und doppelte Begriffe fallen heraus
+- Werte gehen nur als Platzhalter ins SQL, die Sortierspalte ist ueber die
+  Weissliste SORTABLE_COLUMNS abgesichert
+- Leere Felder stehen beim Sortieren in beiden Richtungen am Ende
+- Mehrtaegige Touren haben time_required_min NULL und fallen bei einem Filter
+  auf die Gehzeit heraus, das ist gewollt
+
+### Suche
+- query.py uebersetzt Kommandozeilenargumente in find_tours und gibt eine
+  Tabelle aus. Fehlt die Datenbank, gibt es einen Hinweis und Rueckgabewert 1
+- --max-dauer versteht 5:30 und 330
+- --schwierigkeit nimmt mehrere Werte (nargs + und action extend). Ein zweites
+  --schwierigkeit ergaenzt, statt den ersten Wert still zu ueberschreiben
+
+### Tests
+- 96 Tests: tour_store 36, query 26, downloader 12, hikr_parser 10,
+  gpx_parser 7, main 5
+- Keine Netzwerkzugriffe, requests.get wird ueber monkeypatch ersetzt
+- tests/conftest.py wacht darueber, dass kein Test data/tours.sqlite3 anfasst.
+  Schreibende Tests nutzen tmp_path, reine Abfragetests eine Datenbank im
+  Arbeitsspeicher
 - pyproject.toml konfiguriert pytest mit pythonpath und testpaths
-- Erfolgreich getestet an einer echten Hikr Tour (Sunnig Wichel)
-- Distanz stammt aus der GPX Datei, nicht aus dem HTML
+
+## Bekannte Grenzen
+- Die Schwierigkeit ist ein Teiltextfilter, kein Bereichsfilter. II trifft
+  auch III, einzelne Buchstaben wie S oder L treffen fast alles
+- Nur deutschsprachige Hikr Seiten, die Spalte language wird nicht befuellt
+- Keine Schemamigration. CREATE TABLE IF NOT EXISTS ergaenzt keine Spalten in
+  einer bestehenden Datei, neue Spalten brauchen eine neue Datenbankdatei
 
 ## Architektur
 - crawler/downloader.py     Klasse Downloader mit DownloadError
 - parsers/hikr_parser.py    Klasse HikrParser mit LABEL_MAP
 - parsers/gpx_parser.py     Klasse GpxParser mit GpxParseError
-- storage/tour_store.py     Klasse TourStore mit TourStoreError,
-                            einziges SQL im Projekt
+- storage/tour_store.py     Klasse TourStore mit TourStoreError, einziges SQL
 - data/html                 Lokale HTML Ablage, per gitignore ausgeschlossen
 - data/gpx                  Lokale GPX Ablage, per gitignore ausgeschlossen
-- tests                     pytest Tests
-- main.py                   Einstiegspunkt fuer manuelle Laeufe
+- data/tours.sqlite3        Tourdatenbank, per gitignore ausgeschlossen
+- tests                     pytest Tests, conftest.py mit Waechter
+- main.py                   Crawl Lauf ueber die Liste TOUR_URLS
 - query.py                  Suchinterface mit Tabellenausgabe
 
 ## Konventionen
 - Python 3.14 im venv unter Windows 11
 - requests, BeautifulSoup und gpxpy als Kernbibliotheken, sqlite3 aus der
-  Standardbibliothek fuer die Ablage
+  Standardbibliothek fuer die Ablage, kein ORM
 - pytest fuer Tests, konfiguriert ueber pyproject.toml
 - Kleine, haeufige Commits mit klaren Botschaften auf Deutsch
 - Umlaute korrekt, keine unnoetigen Sonderzeichen
 - Klassen basierter Aufbau, Type Hints wo sinnvoll
 - Fehlerbehandlung ueber eigene Exceptions wie DownloadError
 
+## Hinweise fuer die Arbeit am Projekt
+- Zeilenenden sind CRLF (core.autocrlf true). Neue Dateien ebenfalls mit CRLF
+  schreiben, sonst erscheinen im Diff ganze Dateien als geaendert
+- requirements.txt ist UTF-16, entstanden durch pip freeze unter PowerShell.
+  pip liest das problemlos, beim Bearbeiten die Kodierung beibehalten
+- Die Windows Konsole laeuft mit cp1252. Ausgaben mit Titeln und Regionen ueber
+  sys.stdout.reconfigure(errors="replace") absichern
+- Commits: Botschaft als Datei schreiben und mit git commit -F datei -- pfade
+  committen. Heredocs in verketteten Shellbefehlen haben hier mehrfach alle
+  Aenderungen in einen einzigen Commit gezogen
+
 ## Danach geplant
 - Erweiterung des Parsers um Extraktion des Beschreibungstexts (main_text)
+- Mehrsprachigkeit im Parser (de, fr, it, en)
+- Spaeter Bereichsfilter fuer die Schwierigkeit, z.B. bis WS
 - Spaeter zweiter Parser fuer Gipfelbuch
 
 ## Langfristige Vision
