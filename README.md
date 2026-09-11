@@ -37,7 +37,7 @@ Letzter Lauf ueber zwoelf echte Touren: 12 gelesen, 8 mit GPX Datei,
 - Filter ueber Region, Sportart, Schwierigkeit, Aufstieg und Gehzeit,
   beliebig kombinierbar
 - Suchinterface query.py mit Tabellenausgabe auf der Kommandozeile
-- 84 Tests, alle ohne Netzwerkzugriff und ohne Spuren auf der Platte
+- 96 Tests, alle ohne Netzwerkzugriff und ohne Spuren auf der Platte
 
 ### Grundarchitektur
 
@@ -81,6 +81,7 @@ Einschraenkung, ohne Angabe kommt die ganze Ablage:
     python query.py --region Schweiz --sportart Wandern
     python query.py --max-aufstieg 1500 --max-dauer 5:30
     python query.py --schwierigkeit T4 --min-aufstieg 800
+    python query.py --sportart Wandern --schwierigkeit T4 T5
     python query.py --sortierung distance_km --absteigend --limit 5
 
 Die Ausgabe ist eine Tabelle mit Datum, Sportart, Region, Schwierigkeit,
@@ -93,8 +94,15 @@ Aufstieg, Dauer, Distanz und Titel:
 
     3 Touren gefunden.
 
-`--max-dauer` versteht beide Schreibweisen, `5:30` und `330`. Alle Optionen
-zeigt `python query.py --help`.
+`--max-dauer` versteht beide Schreibweisen, `5:30` und `330`.
+
+`--schwierigkeit` nimmt einen oder mehrere Werte. `--schwierigkeit T4 T5` und
+`--schwierigkeit T4 --schwierigkeit T5` sind gleichwertig. Mehrere Werte gelten
+untereinander als oder, mit den uebrigen Filtern bleibt es bei und. Verglichen
+wird als Teiltext in allen drei Skalen: T3 trifft auch T3+, ZS auch ZS-, II
+aber auch III.
+
+Alle Optionen zeigt `python query.py --help`.
 
 ### Aus Python heraus
 

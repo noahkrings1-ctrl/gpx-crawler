@@ -3,7 +3,7 @@ import sqlite3
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Sequence
 
 
 DEFAULT_DB_PATH = Path("data/tours.sqlite3")
@@ -234,11 +234,32 @@ class TourStore:
         """Legt mehrere Touren ab und liefert die Anzahl."""
         return sum(1 for tour in tours if self.upsert_tour(tour))
 
+    @staticmethod
+    def _difficulty_terms(difficulty: str | Sequence[str] | None) -> list[str]:
+        """
+        Macht aus einem Begriff oder einer Liste eine bereinigte Liste.
+
+        Ein String ist in Python selbst eine Folge von Zeichen. Ohne die
+        Pruefung vorab wuerde aus "T4" die Suche nach "t" oder "4", und "t"
+        steckt in fast jeder Bewertung.
+
+        Leere Begriffe fallen heraus. normalise macht aus ihnen einen leeren
+        Text, und LIKE '%%' trifft jede Tour. In einer Liste mit oder wuerde
+        ein einziger leerer Begriff den ganzen Filter aushebeln. Doppelte
+        Begriffe fallen ebenfalls weg, sie aendern das Ergebnis nicht.
+        """
+        if difficulty is None:
+            return []
+        if isinstance(difficulty, str):
+            difficulty = [difficulty]
+        terms = (normalise(term) for term in difficulty)
+        return list(dict.fromkeys(term for term in terms if term))
+
     def find_tours(
         self,
         region: Optional[str] = None,
         sport: Optional[str] = None,
-        difficulty: Optional[str] = None,
+        difficulty: str | Sequence[str] | None = None,
         min_elevation_gain: Optional[int] = None,
         max_elevation_gain: Optional[int] = None,
         max_duration_minutes: Optional[int] = None,
@@ -254,6 +275,10 @@ class TourStore:
         Aufrufer nicht wissen muss, auf welcher Stufe sein Begriff liegt.
         Beide vergleichen als Teilzeichenkette, "T4" trifft also auch
         "T4 - Alpinwandern" und "Schweiz" trifft ueber das Land.
+
+        difficulty nimmt einen Begriff oder eine Liste. Mehrere Begriffe
+        gelten untereinander als oder, T4 und T5 findet also beides. Mit
+        den uebrigen Filtern bleibt es bei und.
 
         max_duration_minutes trifft nur Touren mit gefuellter Gehzeit.
         Mehrtaegige Touren haben dort NULL und fallen heraus, denn ein
@@ -274,12 +299,19 @@ class TourStore:
             conditions.append("normalise(sport) = ?")
             parameters.append(normalise(sport))
 
-        if difficulty:
-            clause = " OR ".join(
+        difficulty_terms = self._difficulty_terms(difficulty)
+        if difficulty_terms:
+            # Je Begriff alle drei Skalen mit oder, die Begriffe untereinander
+            # ebenfalls mit oder. Nach aussen bleibt das eine Bedingung, die
+            # mit den uebrigen Filtern ueber und verknuepft wird.
+            per_term = " OR ".join(
                 f"normalise({column}) LIKE ?" for column in DIFFICULTY_COLUMNS
             )
-            conditions.append(f"({clause})")
-            parameters.extend([f"%{normalise(difficulty)}%"] * len(DIFFICULTY_COLUMNS))
+            conditions.append(
+                "(" + " OR ".join(f"({per_term})" for _ in difficulty_terms) + ")"
+            )
+            for term in difficulty_terms:
+                parameters.extend([f"%{term}%"] * len(DIFFICULTY_COLUMNS))
 
         if min_elevation_gain is not None:
             conditions.append("elevation_gain_m >= ?")

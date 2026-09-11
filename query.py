@@ -140,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Beispiele:\n"
             "  python query.py --region Schweiz --sportart Wandern\n"
             "  python query.py --max-aufstieg 1500 --max-dauer 5:30\n"
+            "  python query.py --sportart Wandern --schwierigkeit T4 T5\n"
             "  python query.py --sortierung distance_km --absteigend --limit 5\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -150,9 +151,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Land, Hauptregion oder Gebiet. Umlaute duerfen ausgeschrieben werden",
     )
     parser.add_argument("--sportart", help="Wandern, Hochtour oder Klettern")
+    # extend statt des ueblichen store: sonst ersetzt ein zweites
+    # --schwierigkeit den ersten Wert ohne Warnung. So landen "T4 T5" und
+    # "T4 --schwierigkeit T5" beide in derselben Liste.
     parser.add_argument(
         "--schwierigkeit",
-        help="Teil einer Bewertung, z.B. T4 oder ZS. Sucht in allen drei Skalen",
+        nargs="+",
+        action="extend",
+        metavar="STUFE",
+        help="Eine oder mehrere Bewertungen, z.B. T4 T5 oder ZS. Mehrere "
+        "Werte gelten als oder. Sucht in allen drei Skalen",
     )
     parser.add_argument(
         "--min-aufstieg", type=int, metavar="METER", help="Aufstieg mindestens"

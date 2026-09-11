@@ -394,3 +394,57 @@ def test_empty_fields_stay_last_in_both_directions(filled_store) -> None:
     """
     assert filled_store.find_tours()[-1]["date_iso"] is None
     assert filled_store.find_tours(descending=True)[-1]["date_iso"] is None
+
+
+# --- Mehrere Schwierigkeiten --------------------------------------------
+
+
+def test_filter_by_several_difficulties_finds_each_of_them(filled_store) -> None:
+    """Mehrere Begriffe gelten untereinander als oder."""
+    assert titles(filled_store.find_tours(difficulty=["T4", "T5"])) == {
+        "Ortler via neue Olaf Reinstadler-Route",
+        "Ueber die Fuorcla",
+        "Laeged und Schaechentaler Windgaellen",
+    }
+
+
+def test_single_difficulty_as_string_or_list_is_the_same(filled_store) -> None:
+    """
+    Ein String darf nicht Zeichen fuer Zeichen gelesen werden. Sonst
+    wuerde aus T5 die Suche nach t oder 5, und t trifft fast alles.
+    """
+    expected = {"Laeged und Schaechentaler Windgaellen"}
+
+    assert titles(filled_store.find_tours(difficulty="T5")) == expected
+    assert titles(filled_store.find_tours(difficulty=["T5"])) == expected
+
+
+def test_several_difficulties_still_combine_with_other_filters(filled_store) -> None:
+    """Untereinander oder, mit den uebrigen Filtern weiterhin und."""
+    found = filled_store.find_tours(difficulty=["T4", "T5"], sport="Wandern")
+
+    assert titles(found) == {
+        "Ueber die Fuorcla",
+        "Laeged und Schaechentaler Windgaellen",
+    }
+
+
+def test_empty_difficulty_list_means_no_filter(filled_store) -> None:
+    assert len(filled_store.find_tours(difficulty=[])) == 4
+    assert len(filled_store.find_tours(difficulty=["", "  "])) == 4
+
+
+def test_blank_term_does_not_widen_the_filter(filled_store) -> None:
+    """
+    Ein leerer Begriff wuerde als LIKE '%%' jede Tour treffen. In einer
+    Liste mit oder hebelte er damit den ganzen Filter aus.
+    """
+    assert titles(filled_store.find_tours(difficulty=["T5", "  "])) == {
+        "Laeged und Schaechentaler Windgaellen"
+    }
+
+
+def test_duplicate_difficulties_do_not_change_the_result(filled_store) -> None:
+    assert titles(filled_store.find_tours(difficulty=["T5", "t5", "T5"])) == {
+        "Laeged und Schaechentaler Windgaellen"
+    }

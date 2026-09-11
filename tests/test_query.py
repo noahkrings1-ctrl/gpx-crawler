@@ -196,6 +196,7 @@ def test_parser_reads_all_filters() -> None:
     )
 
     assert args.region == "Uri"
+    assert args.schwierigkeit == ["T4"]
     assert args.max_dauer == 330
     assert args.sortierung == "distance_km"
     assert args.absteigend is True
@@ -206,6 +207,38 @@ def test_parser_rejects_an_unknown_sort_column() -> None:
     """Die Weissliste der Ablage gilt schon beim Einlesen der Argumente."""
     with pytest.raises(SystemExit):
         query.build_parser().parse_args(["--sortierung", "gibtesnicht"])
+
+
+def test_parser_accepts_several_difficulties_at_once() -> None:
+    args = query.build_parser().parse_args(["--schwierigkeit", "T4", "T5"])
+
+    assert args.schwierigkeit == ["T4", "T5"]
+
+
+def test_repeated_difficulty_option_adds_instead_of_overwriting() -> None:
+    """
+    Mit dem ueblichen store haette das zweite --schwierigkeit das erste
+    ohne Warnung ersetzt, gesucht worden waere nur nach T5.
+    """
+    args = query.build_parser().parse_args(
+        ["--schwierigkeit", "T4", "--schwierigkeit", "T5"]
+    )
+
+    assert args.schwierigkeit == ["T4", "T5"]
+
+
+def test_both_spellings_can_be_mixed() -> None:
+    args = query.build_parser().parse_args(
+        ["--schwierigkeit", "T4", "T5", "--region", "Uri", "--schwierigkeit", "ZS"]
+    )
+
+    assert args.schwierigkeit == ["T4", "T5", "ZS"]
+    assert args.region == "Uri"
+
+
+def test_difficulty_option_needs_at_least_one_value() -> None:
+    with pytest.raises(SystemExit):
+        query.build_parser().parse_args(["--schwierigkeit"])
 
 
 # --- Zusammenspiel ------------------------------------------------------
@@ -267,3 +300,28 @@ def test_main_uses_the_default_path_when_none_is_given() -> None:
     args = query.build_parser().parse_args([])
 
     assert args.datenbank.endswith("tours.sqlite3")
+
+
+def test_search_with_several_difficulties(filled_database: Path) -> None:
+    args = query.build_parser().parse_args(["--schwierigkeit", "T2", "T4"])
+
+    with TourStore(filled_database) as store:
+        found = query.search(store, args)
+
+    assert {entry["title"] for entry in found} == {
+        "Ronengrat und Klettergarten Gummen",
+        "Meraner Hoehenweg",
+    }
+
+
+def test_main_with_repeated_difficulty_option(filled_database: Path, capsys) -> None:
+    code = query.main(
+        [
+            "--datenbank", str(filled_database),
+            "--schwierigkeit", "T2",
+            "--schwierigkeit", "T4",
+        ]
+    )
+
+    assert code == 0
+    assert "2 Touren gefunden." in capsys.readouterr().out

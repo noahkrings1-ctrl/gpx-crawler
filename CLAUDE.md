@@ -40,9 +40,12 @@ Aufbau einer Hochtouren Metadaten Datenbank mit der gezielt regionen
   Filter auf die Gehzeit heraus, das ist gewollt
 - query.py ist das Suchinterface, uebersetzt Argumente in find_tours und
   gibt eine Tabelle aus. --max-dauer versteht 5:30 und 330
+- --schwierigkeit nimmt mehrere Werte, untereinander oder, mit den
+  uebrigen Filtern und. action extend verhindert, dass ein zweites
+  --schwierigkeit den ersten Wert still ueberschreibt
 - Ein echter Lauf hat zwoelf Touren abgelegt, Filter ueber Sportart,
   Region, Aufstieg und Distanz funktionieren
-- Tests in tests/ laufen gruen (84), Netzwerkzugriffe sind im Test ueber
+- Tests in tests/ laufen gruen (96), Netzwerkzugriffe sind im Test ueber
   monkeypatch ersetzt, GPX Dateien werden als Fixture geschrieben
 - pyproject.toml konfiguriert pytest mit pythonpath und testpaths
 - Erfolgreich getestet an einer echten Hikr Tour (Sunnig Wichel)
