@@ -1,6 +1,7 @@
 import argparse
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -44,6 +45,30 @@ def parse_duration(value: str) -> int:
     )
 
 
+def _date_bound(value: str, end: bool) -> str:
+    """
+    Ein Jahr steht fuer das ganze Jahr: als Anfang der 1. Januar, als Ende
+    der 31. Dezember. Ein volles Datum gilt so, wie es ist.
+    """
+    text = value.strip()
+    if re.fullmatch(r"\d{4}", text):
+        return f"{text}-12-31" if end else f"{text}-01-01"
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} ist kein Jahr und kein Datum. Erlaubt sind 2025 oder 2025-06-01"
+        ) from None
+
+
+def parse_date_from(value: str) -> str:
+    return _date_bound(value, end=False)
+
+
+def parse_date_to(value: str) -> str:
+    return _date_bound(value, end=True)
+
+
 def format_duration(tour: dict) -> str:
     """
     Gehzeit als 5:30, mehrtaegige Touren als Anzahl Tage.
@@ -69,11 +94,12 @@ def format_region(tour: dict) -> str:
 
 def format_difficulty(tour: dict) -> str:
     """
-    Die Hochtouren Skala zuerst, danach Wandern, danach Klettern.
+    Ski zuerst, dann Hochtouren, dann Wandern, dann Klettern.
     Dieselbe Rangfolge wie bei der Ableitung der Sportart im Parser.
     """
     return (
-        tour.get("difficulty_alpine")
+        tour.get("difficulty_ski")
+        or tour.get("difficulty_alpine")
         or tour.get("difficulty_hiking")
         or tour.get("difficulty_climbing")
         or "-"
@@ -141,6 +167,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  python query.py --region Schweiz --sportart Wandern\n"
             "  python query.py --max-aufstieg 1500 --max-dauer 5:30\n"
             "  python query.py --sportart Wandern --schwierigkeit T4 T5\n"
+            "  python query.py --sportart Skitour --von 2020 --bis 2025\n"
+            "  python query.py --text biwak\n"
             "  python query.py --sortierung distance_km --absteigend --limit 5\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -150,7 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--region",
         help="Land, Hauptregion oder Gebiet. Umlaute duerfen ausgeschrieben werden",
     )
-    parser.add_argument("--sportart", help="Wandern, Hochtour oder Klettern")
+    parser.add_argument("--sportart", help="Wandern, Hochtour, Klettern oder Skitour")
     # extend statt des ueblichen store: sonst ersetzt ein zweites
     # --schwierigkeit den ersten Wert ohne Warnung. So landen "T4 T5" und
     # "T4 --schwierigkeit T5" beide in derselben Liste.
@@ -160,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="extend",
         metavar="STUFE",
         help="Eine oder mehrere Bewertungen, z.B. T4 T5 oder ZS. Mehrere "
-        "Werte gelten als oder. Sucht in allen drei Skalen",
+        "Werte gelten als oder. Sucht in allen Skalen",
     )
     parser.add_argument(
         "--min-aufstieg", type=int, metavar="METER", help="Aufstieg mindestens"
@@ -174,6 +202,23 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DAUER",
         help="Gehzeit hoechstens, als 5:30 oder als Minuten. "
         "Mehrtaegige Touren fallen dabei heraus",
+    )
+    parser.add_argument(
+        "--von",
+        type=parse_date_from,
+        metavar="JAHR_ODER_DATUM",
+        help="Tourdatum ab, als 2020 oder 2020-06-01. Touren ohne Datum fallen heraus",
+    )
+    parser.add_argument(
+        "--bis",
+        type=parse_date_to,
+        metavar="JAHR_ODER_DATUM",
+        help="Tourdatum bis einschliesslich, als 2025 oder 2025-09-30",
+    )
+    parser.add_argument(
+        "--text",
+        metavar="STICHWORT",
+        help="Sucht im Berichtstext und im Titel, z.B. biwak",
     )
     parser.add_argument(
         "--sortierung",
@@ -206,6 +251,9 @@ def search(store: TourStore, args: argparse.Namespace) -> list[dict]:
         min_elevation_gain=args.min_aufstieg,
         max_elevation_gain=args.max_aufstieg,
         max_duration_minutes=args.max_dauer,
+        date_from=args.von,
+        date_to=args.bis,
+        text=args.text,
         order_by=args.sortierung,
         descending=args.absteigend,
         limit=args.limit,
@@ -219,7 +267,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # UnicodeEncodeError abbrechen.
     sys.stdout.reconfigure(errors="replace")
 
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.von and args.bis and args.von > args.bis:
+        parser.error(f"--von {args.von} liegt nach --bis {args.bis}")
 
     if not Path(args.datenbank).exists():
         print(

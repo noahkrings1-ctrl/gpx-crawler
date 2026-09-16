@@ -8,6 +8,12 @@ from typing import Any, Iterable, Optional, Sequence
 
 DEFAULT_DB_PATH = Path("data/tours.sqlite3")
 
+# Status einer bekannten URL. neu heisst gefunden, aber noch nicht geladen.
+STATUS_NEW = "neu"
+STATUS_STORED = "gespeichert"
+STATUS_FAILED = "fehlgeschlagen"
+URL_STATUSES = frozenset({STATUS_NEW, STATUS_STORED, STATUS_FAILED})
+
 # Spalte in der Datenbank -> Schluessel im Metadaten Dictionary.
 # Die Distanz heisst im Dictionary distance, in der Tabelle aber distance_km,
 # damit die Einheit an der Spalte ablesbar bleibt.
@@ -25,6 +31,7 @@ COLUMN_MAP = {
     "difficulty_hiking": "difficulty_hiking",
     "difficulty_alpine": "difficulty_alpine",
     "difficulty_climbing": "difficulty_climbing",
+    "difficulty_ski": "difficulty_ski",
     "elevation_gain_m": "elevation_gain_m",
     "elevation_loss_m": "elevation_loss_m",
     "time_required": "time_required",
@@ -34,14 +41,20 @@ COLUMN_MAP = {
     "language": "language",
     "gpx_url": "gpx_url",
     "gpx_path": "gpx_path",
+    "main_text": "main_text",
 }
 
 # Spalten, gegen die ein Regionsfilter prueft. Damit trifft "Uri" die
 # Hauptregion und "Schweiz" das Land, ohne dass der Aufrufer die Stufe kennt.
 REGION_COLUMNS = ("region_country", "region_main", "region_area", "region_leaf")
 
-# Hikr fuehrt je Sportart eine eigene Skala, ein Filter prueft alle drei.
-DIFFICULTY_COLUMNS = ("difficulty_hiking", "difficulty_alpine", "difficulty_climbing")
+# Hikr fuehrt je Sportart eine eigene Skala, ein Filter prueft alle vier.
+DIFFICULTY_COLUMNS = (
+    "difficulty_hiking",
+    "difficulty_alpine",
+    "difficulty_climbing",
+    "difficulty_ski",
+)
 
 # Nur diese Spalten duerfen sortieren. Ein Spaltenname laesst sich nicht als
 # Platzhalter uebergeben, er landet als Text im SQL. Ohne diese Liste waere
@@ -77,6 +90,7 @@ CREATE TABLE IF NOT EXISTS tours (
     difficulty_hiking   TEXT,
     difficulty_alpine   TEXT,
     difficulty_climbing TEXT,
+    difficulty_ski      TEXT,
     elevation_gain_m    INTEGER,
     elevation_loss_m    INTEGER,
     time_required       TEXT,
@@ -86,6 +100,7 @@ CREATE TABLE IF NOT EXISTS tours (
     language            TEXT,
     gpx_url             TEXT,
     gpx_path            TEXT,
+    main_text           TEXT,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
 );
@@ -96,6 +111,31 @@ CREATE INDEX IF NOT EXISTS idx_tours_region_country ON tours (region_country);
 CREATE INDEX IF NOT EXISTS idx_tours_region_main ON tours (region_main);
 CREATE INDEX IF NOT EXISTS idx_tours_region_leaf ON tours (region_leaf);
 CREATE INDEX IF NOT EXISTS idx_tours_elevation_gain ON tours (elevation_gain_m);
+
+CREATE TABLE IF NOT EXISTS discovered_urls (
+    url                 TEXT PRIMARY KEY,
+    region_id           INTEGER,
+    category            TEXT,
+    tour_date           TEXT,
+    status              TEXT NOT NULL
+                        CHECK (status IN ('neu', 'gespeichert', 'fehlgeschlagen')),
+    first_seen          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_discovered_search
+    ON discovered_urls (region_id, category, status, tour_date);
+
+CREATE TABLE IF NOT EXISTS discovery_progress (
+    region_id           INTEGER NOT NULL,
+    category            TEXT NOT NULL,
+    date_from           TEXT NOT NULL,
+    date_to             TEXT NOT NULL,
+    resume_skip         INTEGER NOT NULL,
+    completed           INTEGER NOT NULL,
+    updated_at          TEXT NOT NULL,
+    PRIMARY KEY (region_id, category, date_from, date_to)
+);
 """
 
 
@@ -112,10 +152,10 @@ def normalise(text: Optional[str]) -> str:
     Macht Suchbegriff und Spaltenwert vergleichbar.
 
     SQLite vergleicht bei LIKE nur ASCII ohne Ruecksicht auf Gross und
-    Klein. "Oesterreich" trifft damit "Oesterreich" nicht, und auf einer
+    Klein. "Österreich" trifft damit "oesterreich" nicht, und auf einer
     deutschsprachigen Seite traegt fast jede Region einen Umlaut. Hier
     werden beide Seiten klein geschrieben und die Umlaute ausgeschrieben,
-    danach findet "Oesterreich", "Oesterreich" und "oesterreich" dasselbe.
+    danach findet "Österreich", "Oesterreich" und "oesterreich" dasselbe.
     """
     if not text:
         return ""
@@ -140,6 +180,10 @@ class TourStore:
 
     Die Quelle URL ist der Schluessel. Ein zweiter Lauf ueber dieselbe Tour
     aktualisiert den Datensatz, statt ihn ein zweites Mal anzulegen.
+
+    Neben den Touren fuehrt die Ablage jede bekannte URL mit Status
+    (discovered_urls) und den Fortschritt jeder Discovery Suche
+    (discovery_progress). Damit wird keine URL zweimal gecrawlt.
 
     Das gesamte SQL des Projekts steht in diesem Modul, damit ein Wechsel
     auf einen ORM spaeter nur hier stattfaende. Aus demselben Grund verlaesst
@@ -185,7 +229,7 @@ class TourStore:
             self.connection = None
 
     def create_schema(self) -> None:
-        """Legt Tabelle und Indizes an, falls sie noch fehlen."""
+        """Legt Tabellen und Indizes an, falls sie noch fehlen."""
         connection = self._require_connection()
         try:
             connection.executescript(SCHEMA)
@@ -206,7 +250,7 @@ class TourStore:
 
         columns = list(COLUMN_MAP)
         values = [metadata.get(key) for key in COLUMN_MAP.values()]
-        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        now = self._now()
 
         placeholders = ", ".join("?" for _ in columns) + ", ?, ?"
         column_list = ", ".join(columns) + ", created_at, updated_at"
@@ -263,6 +307,9 @@ class TourStore:
         min_elevation_gain: Optional[int] = None,
         max_elevation_gain: Optional[int] = None,
         max_duration_minutes: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        text: Optional[str] = None,
         order_by: str = "date_iso",
         descending: bool = False,
         limit: Optional[int] = None,
@@ -279,6 +326,12 @@ class TourStore:
         difficulty nimmt einen Begriff oder eine Liste. Mehrere Begriffe
         gelten untereinander als oder, T4 und T5 findet also beides. Mit
         den uebrigen Filtern bleibt es bei und.
+
+        date_from und date_to sind ISO Daten und schliessen die Grenzen ein.
+        Touren ohne Datum fallen bei einem Datumsfilter heraus.
+
+        text sucht als Teilzeichenkette im Berichtstext und im Titel, nach
+        derselben Normalisierung wie die uebrigen Filter.
 
         max_duration_minutes trifft nur Touren mit gefuellter Gehzeit.
         Mehrtaegige Touren haben dort NULL und fallen heraus, denn ein
@@ -301,7 +354,7 @@ class TourStore:
 
         difficulty_terms = self._difficulty_terms(difficulty)
         if difficulty_terms:
-            # Je Begriff alle drei Skalen mit oder, die Begriffe untereinander
+            # Je Begriff alle Skalen mit oder, die Begriffe untereinander
             # ebenfalls mit oder. Nach aussen bleibt das eine Bedingung, die
             # mit den uebrigen Filtern ueber und verknuepft wird.
             per_term = " OR ".join(
@@ -324,6 +377,19 @@ class TourStore:
         if max_duration_minutes is not None:
             conditions.append("time_required_min <= ?")
             parameters.append(max_duration_minutes)
+
+        if date_from:
+            conditions.append("date_iso >= ?")
+            parameters.append(date_from)
+
+        if date_to:
+            conditions.append("date_iso <= ?")
+            parameters.append(date_to)
+
+        text_term = normalise(text)
+        if text_term:
+            conditions.append("(normalise(main_text) LIKE ? OR normalise(title) LIKE ?)")
+            parameters.extend([f"%{text_term}%"] * 2)
 
         if order_by not in SORTABLE_COLUMNS:
             raise TourStoreError(
@@ -376,6 +442,211 @@ class TourStore:
             )
         except sqlite3.Error as exc:
             raise TourStoreError(f"Kann nicht zaehlen: {exc}") from exc
+
+    # --- Bekannte URLs und Discovery Fortschritt ---------------------------
+
+    def is_known_url(self, url: str) -> bool:
+        """
+        Bekannt ist eine URL, sobald sie gespeichert oder gefunden wurde,
+        unabhaengig vom Status. Die Discovery liefert nur unbekannte URLs,
+        dadurch wird nichts doppelt gecrawlt.
+        """
+        try:
+            row = (
+                self._require_connection()
+                .execute(
+                    "SELECT EXISTS (SELECT 1 FROM tours WHERE source_url = ?) "
+                    "OR EXISTS (SELECT 1 FROM discovered_urls WHERE url = ?)",
+                    (url, url),
+                )
+                .fetchone()
+            )
+        except sqlite3.Error as exc:
+            raise TourStoreError(f"Kann {url} nicht pruefen: {exc}") from exc
+        return bool(row[0])
+
+    def url_status(self, url: str) -> Optional[str]:
+        """Status einer bekannten URL, sonst None."""
+        try:
+            row = (
+                self._require_connection()
+                .execute("SELECT status FROM discovered_urls WHERE url = ?", (url,))
+                .fetchone()
+            )
+        except sqlite3.Error as exc:
+            raise TourStoreError(f"Kann den Status von {url} nicht lesen: {exc}") from exc
+        return row["status"] if row else None
+
+    def skip_reason(self, url: str) -> Optional[str]:
+        """
+        Grund, eine URL nicht zu laden, sonst None. Gespeicherte Touren und
+        dauerhaft fehlgeschlagene URLs werden nie erneut angefragt.
+        """
+        if self.get_by_url(url) is not None:
+            return "bereits gespeichert"
+        if self.url_status(url) == STATUS_FAILED:
+            return "frueher dauerhaft fehlgeschlagen"
+        return None
+
+    def add_discovered(
+        self,
+        entries: Iterable[tuple[str, Optional[str]]],
+        region_id: int,
+        category: str,
+    ) -> int:
+        """
+        Legt gefundene URLs mit Tourdatum und Status neu ab und liefert, wie
+        viele davon wirklich neu waren. Die URL ist Primaerschluessel, ein
+        Duplikat laesst die Datenbank schlicht nicht zu.
+        """
+        now = self._now()
+        rows = [
+            (url, region_id, category, tour_date, STATUS_NEW, now, now)
+            for url, tour_date in entries
+        ]
+        connection = self._require_connection()
+        try:
+            before = connection.total_changes
+            connection.executemany(
+                "INSERT OR IGNORE INTO discovered_urls "
+                "(url, region_id, category, tour_date, status, first_seen, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            connection.commit()
+        except sqlite3.Error as exc:
+            raise TourStoreError(f"Kann gefundene URLs nicht ablegen: {exc}") from exc
+        return connection.total_changes - before
+
+    def record_url_status(self, url: str, status: str) -> None:
+        """
+        Haelt fest, wie ein Ladeversuch ausging. Auch URLs aus der festen
+        Liste landen hier, damit fuer beide Modi dieselben Regeln gelten.
+        """
+        if status not in URL_STATUSES:
+            raise TourStoreError(
+                f"Unbekannter Status {status!r}, erlaubt sind "
+                f"{', '.join(sorted(URL_STATUSES))}"
+            )
+        now = self._now()
+        connection = self._require_connection()
+        try:
+            connection.execute(
+                "INSERT INTO discovered_urls (url, status, first_seen, updated_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(url) DO UPDATE SET status = excluded.status, "
+                "updated_at = excluded.updated_at",
+                (url, status, now, now),
+            )
+            connection.commit()
+        except sqlite3.Error as exc:
+            raise TourStoreError(f"Kann den Status von {url} nicht ablegen: {exc}") from exc
+
+    def pending_urls(
+        self,
+        region_id: int,
+        category: str,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> list[str]:
+        """
+        Gefundene, aber noch nicht geladene URLs einer Suche, neueste Tour
+        zuerst. Mit Datumsbereich zaehlen nur URLs mit bekanntem Tourdatum.
+        """
+        conditions = ["status = ?", "region_id = ?", "category = ?"]
+        parameters: list[Any] = [STATUS_NEW, region_id, category]
+        if date_from:
+            conditions.append("tour_date >= ?")
+            parameters.append(date_from)
+        if date_to:
+            conditions.append("tour_date <= ?")
+            parameters.append(date_to)
+
+        query = (
+            "SELECT url FROM discovered_urls WHERE "
+            + " AND ".join(conditions)
+            + " ORDER BY tour_date IS NULL, tour_date DESC, url"
+        )
+        if limit is not None:
+            query += " LIMIT ?"
+            parameters.append(limit)
+
+        try:
+            rows = self._require_connection().execute(query, parameters).fetchall()
+        except sqlite3.Error as exc:
+            raise TourStoreError(f"Kann offene URLs nicht lesen: {exc}") from exc
+        return [row["url"] for row in rows]
+
+    def get_progress(
+        self,
+        region_id: int,
+        category: str,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Stand einer Discovery Suche, sonst None."""
+        try:
+            row = (
+                self._require_connection()
+                .execute(
+                    "SELECT resume_skip, completed, updated_at FROM discovery_progress "
+                    "WHERE region_id = ? AND category = ? AND date_from = ? AND date_to = ?",
+                    (region_id, category, date_from or "", date_to or ""),
+                )
+                .fetchone()
+            )
+        except sqlite3.Error as exc:
+            raise TourStoreError(f"Kann den Suchstand nicht lesen: {exc}") from exc
+        if row is None:
+            return None
+        return {
+            "resume_skip": int(row["resume_skip"]),
+            "completed": bool(row["completed"]),
+            "updated_at": row["updated_at"],
+        }
+
+    def save_progress(
+        self,
+        region_id: int,
+        category: str,
+        date_from: Optional[str],
+        date_to: Optional[str],
+        resume_skip: int,
+        completed: bool,
+    ) -> None:
+        """
+        Merkt sich, wie weit eine Suche gekommen ist. Eine einmal vollstaendig
+        durchsuchte Suche bleibt vollstaendig, auch wenn ein spaeterer Lauf
+        nur die neuesten Seiten nach neuen Berichten absucht.
+        """
+        connection = self._require_connection()
+        try:
+            connection.execute(
+                "INSERT INTO discovery_progress "
+                "(region_id, category, date_from, date_to, resume_skip, completed, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(region_id, category, date_from, date_to) DO UPDATE SET "
+                "resume_skip = excluded.resume_skip, "
+                "completed = MAX(discovery_progress.completed, excluded.completed), "
+                "updated_at = excluded.updated_at",
+                (
+                    region_id,
+                    category,
+                    date_from or "",
+                    date_to or "",
+                    resume_skip,
+                    int(bool(completed)),
+                    self._now(),
+                ),
+            )
+            connection.commit()
+        except sqlite3.Error as exc:
+            raise TourStoreError(f"Kann den Suchstand nicht ablegen: {exc}") from exc
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     def _require_connection(self) -> sqlite3.Connection:
         if self.connection is None:
