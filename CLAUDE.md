@@ -7,20 +7,43 @@ Aufbau einer Hochtouren Metadaten Datenbank, mit der gezielt Regionen gefiltert 
 
 ## Aktueller Stand (September 2026)
 
-Die Kette steht: Hikr URL -> Metadaten -> GPX -> Distanz -> SQLite -> Suche
-mit query.py. Die Ablage enthaelt zwoelf echte Touren, acht davon mit GPX
-Datei. 96 Tests laufen gruen.
+Die Kette steht: Discovery oder feste Liste -> Tourseite -> Metadaten -> GPX
+-> Distanz -> SQLite -> Suche mit query.py. Die Ablage enthaelt zwoelf echte
+Touren, acht davon mit GPX Datei. 249 Tests laufen gruen.
+
+### Discovery
+- crawler/discovery.py, Klasse HikrDiscovery mit DiscoveryError. find_urls
+  und discover blaettern durch die Liste region{ID}/{code}/ mit ?skip=10er
+  Schritten und liefern Tour URLs
+- Kategoriecodes: tour alle, ped Wandern, alp Hochtouren, esc Klettern, ski
+  Skitouren, raq Schneeschuhe, via Klettersteig, eis Eisklettern
+- Region als ID oder als Name aus REGION_IDS, abgelesen an echten Regionsseiten
+  (Schweiz 2, Uri 146, Graubuenden 4, die uebrigen Kantone, Frankreich 14,
+  Italien 16, Oesterreich 33, Deutschland 69)
+- Die Listen sind nach Tourdatum absteigend sortiert, jeder Eintrag zeigt sein
+  Datum als "19 Mär 26". Ein Datumsbereich wird daraus gelesen, ein Eintrag
+  vor dem Beginn beendet die Suche
+- Die naechste Seite ist der Blaetterlink mit skip + 10, gefunden ueber die
+  Zahl, nicht ueber die Beschriftung. Gefolgt wird nur Links derselben Region
+  und Kategorie
+- Strukturwaechter: Blaetterblock ohne Eintraege oder nicht absteigende Daten
+  bei Datumsfilter ergeben einen DiscoveryError
+- main.py fuehrt den Lauf: zuerst offene URLs frueherer Laeufe, fuer den Rest
+  Discovery ab gespeichertem Stand minus eine Seite. Vollstaendige Bereiche
+  werden nur oben nach neuen Berichten abgesucht (stop_at_known_page)
 
 ### Crawler
-- Downloader mit realistischen Browser Headern und brotli Support
+- Downloader mit Browser Headern und brotli Support. Drossel, robots.txt und
+  Wiederholungen sind optionale Parameter, echte Laeufe bekommen alle drei
+  ueber build_polite_downloader
+- Fehlerklassen: DownloadError dauerhaft, TransientDownloadError voruebergehend,
+  CrawlBlockedError beendet den ganzen Lauf
 - download_gpx legt GPX Dateien nach data/gpx ab, benannt nach Datum und
-  Titel, z.B. 2026-07-12-sunnig-wichel-via-nordgrat.gpx. Gespeichert wird als
-  Bytes, eine Pruefung auf das gpx Wurzelelement faengt HTML Fehlerseiten ab
-- main.py arbeitet die Liste TOUR_URLS ab, zwoelf echte Touren von T1 bis
-  Hochtour ZS-. Ein Fehlschlag bricht den Lauf nicht ab, zwischen zwei
-  Aufrufen liegen 1.5 Sekunden
-- Vorhandenes HTML wird wiederverwendet (REUSE_LOCAL_HTML), GPX Dateien werden
-  bei jedem Lauf neu geladen
+  Titel, z.B. 2026-07-12-sunnig-wichel-via-nordgrat.gpx. Liegt die Datei schon
+  vor, gibt es keine Anfrage
+- HTML und GPX werden atomar geschrieben, ueber eine .part Datei
+- main.py hat zwei Modi: ohne Optionen die feste Liste TOUR_URLS, mit
+  --discover die Suche nach Kriterien. Vorhandenes HTML wird wiederverwendet
 
 ### Parser
 - HikrParser liest die Tabelle fiche_rando ueber LABEL_MAP, nur deutsche Labels
@@ -31,20 +54,29 @@ Datei. 96 Tests laufen gruen.
 - Die Region ist zerlegt in region_country, region_main und region_area, dazu
   region_leaf. region_main ist in der Schweiz der Kanton, in Oesterreich eine
   Gebirgsgruppe, daher der neutrale Name
-- sport wird aus der Schwierigkeitsskala abgeleitet: Hochtour vor Wandern vor
-  Klettern. Eine UIAA Note neben einer T Note ist nur eine Kletterstelle
+- Vier Skalen: Wandern, Hochtouren, Klettern, Ski. Die Ski Skala heisst auf
+  den Listen "Ski Schwierigkeit", auf einer Tourseite noch nicht gesehen,
+  daher versteht LABEL_MAP auch "Skitouren Schwierigkeit"
+- sport: Skitour vor Hochtour vor Wandern vor Klettern. Eine UIAA Note neben
+  einer T Note ist nur eine Kletterstelle
+- main_text kommt nur aus div#main_text, nicht aus der ganzen Seite
 - GpxParser berechnet die Distanz horizontal in Kilometern mit gpxpy. Routen
   ohne Track werden mitgezaehlt, ohne verwertbare Punkte gibt es None statt 0.0
 
 ### Ablage
-- TourStore in storage/tour_store.py, Datei data/tours.sqlite3 mit 25 Spalten.
+- TourStore in storage/tour_store.py, Datei data/tours.sqlite3
+- Tabelle tours mit 27 Spalten, neu sind difficulty_ski und main_text.
   Schluessel ist source_url, upsert statt Duplikat, created_at bleibt erhalten
+- Tabelle discovered_urls: jede bekannte URL einmal, Status neu, gespeichert
+  oder fehlgeschlagen, dazu Region, Kategorie und Tourdatum aus der Liste
+- Tabelle discovery_progress: resume_skip und completed je Region, Kategorie
+  und Zeitraum. completed bleibt gesetzt, wenn es einmal gesetzt war
 - find_tours filtert nach region, sport, difficulty, min_elevation_gain,
-  max_elevation_gain und max_duration_minutes, dazu order_by, descending und
-  limit. Fehlender Filter heisst kein Filter
-- region und difficulty pruefen mehrere Spalten mit OR. Verglichen wird als
-  Teiltext, beide Seiten laufen vorher durch normalise (klein geschrieben,
-  Umlaute ausgeschrieben), damit "Österreich" und "Oesterreich" dasselbe finden
+  max_elevation_gain, max_duration_minutes, date_from, date_to und text, dazu
+  order_by, descending und limit. Fehlender Filter heisst kein Filter
+- region, difficulty und text vergleichen als Teiltext nach normalise (klein
+  geschrieben, Umlaute ausgeschrieben), damit "Österreich" und "Oesterreich"
+  dasselbe finden. text sucht in main_text und title
 - difficulty nimmt einen String oder eine Liste, mehrere Werte gelten als oder.
   Leere und doppelte Begriffe fallen heraus
 - Werte gehen nur als Platzhalter ins SQL, die Sortierspalte ist ueber die
@@ -59,33 +91,72 @@ Datei. 96 Tests laufen gruen.
 - --max-dauer versteht 5:30 und 330
 - --schwierigkeit nimmt mehrere Werte (nargs + und action extend). Ein zweites
   --schwierigkeit ergaenzt, statt den ersten Wert still zu ueberschreiben
+- --von und --bis nehmen Jahr oder Datum, ein Jahr steht fuer das ganze Jahr
+- --text sucht im Berichtstext und im Titel
 
 ### Tests
-- 96 Tests: tour_store 36, query 26, downloader 12, hikr_parser 10,
-  gpx_parser 7, main 5
-- Keine Netzwerkzugriffe, requests.get wird ueber monkeypatch ersetzt
-- tests/conftest.py wacht darueber, dass kein Test data/tours.sqlite3 anfasst.
-  Schreibende Tests nutzen tmp_path, reine Abfragetests eine Datenbank im
-  Arbeitsspeicher
+- 249 Tests, alle ohne Netz und ohne Spuren auf der Platte
+- tests/conftest.py hat drei Helfer: Waechter fuer data/tours.sqlite3,
+  Netzwaechter, der jede echte Socket Verbindung sperrt, und fake_clock, eine
+  Uhr, die nur beim Schlafen vorrueckt. Pausen werden damit ohne Warten geprueft
+- tests/fixtures/hikr enthaelt Nachbauten von Listenseiten und robots.txt mit
+  erfundenen Titeln, Daten und Nummern. Keine echten Hikr Seiten ins Repo
+- Schreibende Tests nutzen tmp_path, reine Abfragetests ":memory:"
 - pyproject.toml konfiguriert pytest mit pythonpath und testpaths
+
+## Konventionen zu Rate Limits und Fairness
+- Jede Anfrage an Hikr laeuft ueber build_polite_downloader. HikrDiscovery
+  verweigert einen Downloader ohne limiter
+- Mindestpause 2 Sekunden zwischen zwei Anfragen (MIN_DELAY_SECONDS). Der
+  RateLimiter laesst keinen kleineren Wert zu. www.hikr.org und f.hikr.org
+  teilen sich eine Drossel. Keine parallelen Anfragen
+- robots.txt wird vor jeder Anfrage geprueft, einmal je Host und Lauf geladen,
+  erst wenn wirklich eine Anfrage ansteht. 5xx, Netzfehler, 401 und 403 auf
+  robots.txt heissen: nicht crawlen
+- Wiederholungen nur bei Netzfehlern und 502, 503, 504, hoechstens zwei, nach
+  15 und 60 Sekunden. 429 mit Retry-After bis 300 Sekunden wird einmal
+  abgewartet. 403, 429 sonst und Cloudflare Pruefungen beenden den Lauf
+- Drei Fehlschlaege in Folge beenden den Lauf
+- Discovery nur mit --discover, nie beim Start. Standard 20, hoechstens 100
+  neue URLs und hoechstens 20 Listenseiten je Aufruf
+- Keine URL wird zweimal gecrawlt. Gespeicherte und dauerhaft fehlgeschlagene
+  URLs werden ohne Anfrage uebersprungen, eine Option dagegen gibt es nicht
+- Nie nutzen, weil robots.txt es sperrt: Nutzerlisten wie /user/*/ski/, den
+  Monatsfilter date_year_month, map.php, print_rando.php. Die Tour Sitemap
+  hat der Betreiber auskommentiert, sie ist kein Discovery Weg
+- Keine Cloudflare Pruefung umgehen. Die Browser Kennung bleibt nach
+  Entscheidung vom September 2026 bestehen, weitere Tarnung gibt es nicht
+- Hikr Texte gehen an kein KI Modell. robots.txt setzt ai-train=no und sperrt
+  KI Crawler, das Urheberrecht an Texten und Bildern liegt bei den Autoren
+- Waehrend der Entwicklung fragt Claude Hikr nicht selbst an. Neue Tests
+  laufen gegen Nachbauten in tests/fixtures
 
 ## Bekannte Grenzen
 - Die Schwierigkeit ist ein Teiltextfilter, kein Bereichsfilter. II trifft
   auch III, einzelne Buchstaben wie S oder L treffen fast alles
 - Nur deutschsprachige Hikr Seiten, die Spalte language wird nicht befuellt
+- Die Mountainbike Skala wird verworfen
 - Keine Schemamigration. CREATE TABLE IF NOT EXISTS ergaenzt keine Spalten in
   einer bestehenden Datei, neue Spalten brauchen eine neue Datenbankdatei
+- Geloeschte oder nachtraeglich mit altem Datum eingetragene Berichte kann die
+  Discovery in einem durchsuchten Bereich uebersehen
+- Die Fixtures sind Nachbauten. Eine geaenderte Hikr Seite faellt erst im
+  echten Lauf auf, dort meldet sie der Strukturwaechter
 
 ## Architektur
-- crawler/downloader.py     Klasse Downloader mit DownloadError
+- crawler/politeness.py     RateLimiter, RobotsPolicy, RetryPolicy und Grenzwerte
+- crawler/downloader.py     Klasse Downloader mit DownloadError,
+                            TransientDownloadError, CrawlBlockedError
+- crawler/discovery.py      Klasse HikrDiscovery mit DiscoveryError
 - parsers/hikr_parser.py    Klasse HikrParser mit LABEL_MAP
 - parsers/gpx_parser.py     Klasse GpxParser mit GpxParseError
 - storage/tour_store.py     Klasse TourStore mit TourStoreError, einziges SQL
 - data/html                 Lokale HTML Ablage, per gitignore ausgeschlossen
 - data/gpx                  Lokale GPX Ablage, per gitignore ausgeschlossen
 - data/tours.sqlite3        Tourdatenbank, per gitignore ausgeschlossen
-- tests                     pytest Tests, conftest.py mit Waechter
-- main.py                   Crawl Lauf ueber die Liste TOUR_URLS
+- tests                     pytest Tests, conftest.py mit Waechtern
+- tests/fixtures/hikr       Nachbauten von Hikr Listenseiten und robots.txt
+- main.py                   Crawl Lauf ueber TOUR_URLS oder die Discovery
 - query.py                  Suchinterface mit Tabellenausgabe
 
 ## Konventionen
@@ -110,9 +181,11 @@ Datei. 96 Tests laufen gruen.
   Aenderungen in einen einzigen Commit gezogen
 
 ## Danach geplant
-- Erweiterung des Parsers um Extraktion des Beschreibungstexts (main_text)
+- Tags per Wortliste auf main_text, in einer verknuepften Tabelle
+- Filterung nach Tags in find_tours und query.py
 - Mehrsprachigkeit im Parser (de, fr, it, en)
 - Spaeter Bereichsfilter fuer die Schwierigkeit, z.B. bis WS
+- Spaeter Volltextsuche mit FTS5, das eingebaute SQLite bringt es mit
 - Spaeter zweiter Parser fuer Gipfelbuch
 
 ## Langfristige Vision
@@ -134,9 +207,11 @@ durchsuchbare persoenliche Tourdatenbank sein.
 - Schluesselwoerter aus dem Beschreibungstext extrahieren
 - Beispiel Tags: bruechig, lohnenswert, ausgesetzt, familientauglich,
   einsam, ueberlaufen, technisch, konditionell, wetterabhaengig
-- Startpunkt sind einfache Wortlisten pro Kategorie
-- Spaeter Ausbau moeglich in Richtung NLP oder LLM basierte Klassifikation
-- Tags werden pro Tour in einer verknuepften Tabelle abgelegt
+- Tags entstehen ausschliesslich ueber lokale Wortlisten pro Kategorie
+- Kein NLP Dienst und kein LLM auf Hikr Texten. robots.txt setzt ai-train=no
+  und sperrt KI Crawler, die Texte gehoeren ihren Autoren
+- Gespeichert werden die abgeleiteten Tags je Tour in einer verknuepften
+  Tabelle
 
 ### Filterung
 - Kombinierbare Filter, z.B. "Skitour im Wallis, Schwierigkeit bis WS,
