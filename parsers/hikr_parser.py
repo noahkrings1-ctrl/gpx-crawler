@@ -11,12 +11,17 @@ class HikrParser:
     """Parse local Hikr.org HTML files and extract tour metadata."""
 
     # Die deutschen Labels auf Hikr. Wir mappen sie auf unsere internen Keys.
+    # Die Ski Skala ist auf den Listenseiten als "Ski Schwierigkeit" belegt,
+    # auf einer Tourseite aber noch nicht gesehen. Deshalb beide denkbaren
+    # Schreibweisen.
     LABEL_MAP = {
         "region": "region",
         "tour datum": "date",
         "wandern schwierigkeit": "difficulty_hiking",
         "hochtouren schwierigkeit": "difficulty_alpine",
         "klettern schwierigkeit": "difficulty_climbing",
+        "ski schwierigkeit": "difficulty_ski",
+        "skitouren schwierigkeit": "difficulty_ski",
         "aufstieg": "elevation_gain",
         "abstieg": "elevation_loss",
         "zeitbedarf": "time_required",
@@ -56,6 +61,7 @@ class HikrParser:
             "difficulty_hiking": fiche.get("difficulty_hiking"),
             "difficulty_alpine": fiche.get("difficulty_alpine"),
             "difficulty_climbing": fiche.get("difficulty_climbing"),
+            "difficulty_ski": fiche.get("difficulty_ski"),
             "region_leaf": self._region_leaf(fiche.get("region")),
             "region_country": region_country,
             "region_main": region_main,
@@ -70,6 +76,7 @@ class HikrParser:
             "duration_days": self._parse_days(fiche.get("time_required")),
             "distance": None,  # Nicht in HTML vorhanden, kommt spaeter aus GPX
             "gpx_url": self._extract_gpx_link(soup, base_url=base_url),
+            "main_text": self._extract_main_text(soup),
         }
         return metadata
 
@@ -79,6 +86,23 @@ class HikrParser:
         if element:
             return element.get_text(strip=True)
         return None
+
+    def _extract_main_text(self, soup: BeautifulSoup) -> Optional[str]:
+        """
+        Der Berichtstext steht in div#main_text. Nur dieser Block zaehlt,
+        eine Suche ueber die ganze Seite traefe auch Wegpunkte, Karte und
+        Navigation. Absaetze bleiben als Zeilen erhalten.
+
+        Der Text bleibt lokal und dient der eigenen Stichwortsuche. Er wird
+        weder weitergegeben noch einem KI Modell uebergeben.
+        """
+        element = soup.find("div", id="main_text")
+        if element is None:
+            return None
+        text = element.get_text("\n", strip=True)
+        text = re.sub(r"[ \t ]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text or None
 
     def _extract_fiche_rando(self, soup: BeautifulSoup) -> dict:
         """
@@ -189,11 +213,14 @@ class HikrParser:
         Hikr fuehrt je Sportart eine eigene Schwierigkeitsskala. Welche
         gefuellt ist, verraet die Art der Tour.
 
-        Die Reihenfolge ist nicht beliebig. Die Hochtouren Skala steht nur
-        bei echten Hochtouren. Eine UIAA Note neben einer T Note markiert
-        dagegen nur eine Kletterstelle, der Charakter bleibt eine Wanderung.
-        Deshalb schlaegt Wandern das Klettern, aber nicht die Hochtour.
+        Die Reihenfolge ist nicht beliebig. Die Ski Skala steht nur bei
+        Skitouren, auch wenn daneben eine Hochtouren oder Wandernote fuer
+        den Aufstieg vermerkt ist. Die Hochtouren Skala steht nur bei echten
+        Hochtouren. Eine UIAA Note neben einer T Note markiert dagegen nur
+        eine Kletterstelle, der Charakter bleibt eine Wanderung.
         """
+        if fiche.get("difficulty_ski"):
+            return "Skitour"
         if fiche.get("difficulty_alpine"):
             return "Hochtour"
         if fiche.get("difficulty_hiking"):
