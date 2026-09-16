@@ -8,9 +8,10 @@ Aufbau einer Hochtouren Metadaten Datenbank, mit der gezielt Regionen gefiltert 
 ## Aktueller Stand (September 2026)
 
 Die Kette steht: Discovery oder feste Liste -> Tourseite -> Metadaten -> GPX
--> Distanz -> SQLite -> Suche mit query.py. Die Ablage enthaelt 17 echte
-Touren, 12 davon mit GPX Datei, darunter 5 Skitouren aus der ersten echten
-Discovery. 249 Tests laufen gruen.
+-> Distanz -> SQLite -> Suche mit query.py. Die Ablage enthaelt 48 echte
+Touren, 30 davon mit GPX Datei, darunter 36 Skitouren. Fuer Uri sind die
+Skitouren der Jahre 2025 (24) und 2026 (12) vollstaendig geholt. 254 Tests
+laufen gruen.
 
 ### Discovery
 - crawler/discovery.py, Klasse HikrDiscovery mit DiscoveryError. find_urls
@@ -35,6 +36,8 @@ Discovery. 249 Tests laufen gruen.
 - Erster echter Lauf im September 2026 fuer Uri Skitouren: mit --nur-urls
   2 Anfragen, danach 5 Touren mit 11 Anfragen in 22 Sekunden. Keine Sperre,
   Seitenstruktur und Tourdaten passten zum Parser
+- Danach Uri Skitouren 2026 (12 Touren, 2 Listenseiten) und 2025 (24 Touren,
+  4 Listenseiten, 45 Anfragen in 90 Sekunden) vollstaendig geholt
 
 ### Crawler
 - Downloader mit Browser Headern und brotli Support. Drossel, robots.txt und
@@ -45,6 +48,9 @@ Discovery. 249 Tests laufen gruen.
 - download_gpx legt GPX Dateien nach data/gpx ab, benannt nach Datum und
   Titel, z.B. 2026-07-12-sunnig-wichel-via-nordgrat.gpx. Liegt die Datei schon
   vor, gibt es keine Anfrage
+- Ist nur die GPX Datei dauerhaft unbrauchbar (kein GPX, HTTP 404, nicht
+  lesbar), wird die Tour trotzdem gespeichert, ohne gpx_path und Distanz.
+  Voruebergehende GPX Fehler lassen die Tour offen, sie wird erneut versucht
 - HTML und GPX werden atomar geschrieben, ueber eine .part Datei
 - main.py hat zwei Modi: ohne Optionen die feste Liste TOUR_URLS, mit
   --discover die Suche nach Kriterien. Vorhandenes HTML wird wiederverwendet
@@ -99,7 +105,7 @@ Discovery. 249 Tests laufen gruen.
 - --text sucht im Berichtstext und im Titel
 
 ### Tests
-- 249 Tests, alle ohne Netz und ohne Spuren auf der Platte
+- 254 Tests, alle ohne Netz und ohne Spuren auf der Platte
 - tests/conftest.py hat drei Helfer: Waechter fuer data/tours.sqlite3,
   Netzwaechter, der jede echte Socket Verbindung sperrt, und fake_clock, eine
   Uhr, die nur beim Schlafen vorrueckt. Pausen werden damit ohne Warten geprueft

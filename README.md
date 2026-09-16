@@ -15,9 +15,9 @@ angeben, etwa Skitouren in Uri zwischen 2020 und 2026, und der Crawler sucht
 die passenden Berichte selbst. Gecrawlt wird dabei gedrosselt, nach den Regeln
 der robots.txt und ohne eine URL je zweimal anzufragen.
 
-Die Ablage enthaelt 17 echte Touren aus der Schweiz, Oesterreich, Italien
-und Liechtenstein, 12 davon mit GPX Datei. Darunter sind 5 Skitouren aus Uri,
-gefunden beim ersten echten Discovery Lauf. 249 Tests laufen gruen.
+Die Ablage enthaelt 48 echte Touren aus der Schweiz, Oesterreich, Italien
+und Liechtenstein, 30 davon mit GPX Datei. Darunter sind 36 Skitouren aus Uri,
+die Jahre 2025 und 2026 vollstaendig. 254 Tests laufen gruen.
 
 ### Was funktioniert
 
@@ -37,6 +37,8 @@ Crawler
   Cloudflare Pruefungen
 - GPX Download nach data/gpx, benannt nach Datum und Titel, vorhandene Dateien
   werden nicht erneut geladen
+- Ist nur die GPX Datei kaputt, wird die Tour trotzdem gespeichert, ohne GPX
+  und Distanz
 
 Parser
 
@@ -58,7 +60,7 @@ Ablage und Suche
 
 Tests
 
-- 249 Tests, alle ohne Netzwerkzugriff und ohne Spuren auf der Platte
+- 254 Tests, alle ohne Netzwerkzugriff und ohne Spuren auf der Platte
 
 ### Grundarchitektur
 
