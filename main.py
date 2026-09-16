@@ -70,7 +70,11 @@ def process_tour(
     html_dir: Path = HTML_DIR,
     gpx_dir: Path = GPX_DIR,
 ) -> dict:
-    """Laedt eine Tour, liest die Metadaten und ergaenzt die Distanz aus GPX."""
+    """
+    Laedt eine Tour, liest die Metadaten und ergaenzt die Distanz aus GPX.
+    Ist nur die GPX Datei dauerhaft unbrauchbar, kommt die Tour ohne GPX
+    zurueck, statt verloren zu gehen.
+    """
     # Ein Dateiname je Tour, sonst ueberschreiben sich die Seiten gegenseitig.
     html_path = Path(html_dir) / Path(urlparse(url).path).name
 
@@ -88,14 +92,26 @@ def process_tour(
         print("    keine GPX Datei verlinkt")
         return metadata
 
-    gpx_path = downloader.download_gpx(
-        gpx_url,
-        title=metadata["title"],
-        date_iso=metadata["date_iso"],
-        save_dir=gpx_dir,
-    )
+    try:
+        gpx_path = downloader.download_gpx(
+            gpx_url,
+            title=metadata["title"],
+            date_iso=metadata["date_iso"],
+            save_dir=gpx_dir,
+        )
+        distance = gpx_parser.parse_local_gpx(gpx_path)["distance_km"]
+    except (DownloadError, GpxParseError) as exc:
+        # Ein dauerhaft kaputter Anhang darf die lesbare Tour nicht mitreissen,
+        # sonst ginge sie als fehlgeschlagen fuer immer verloren. Voruebergehende
+        # Fehler und Sperren laufen weiter nach oben: Die Tour bleibt dann offen
+        # und bekommt ihre GPX Datei im naechsten Lauf.
+        if not is_permanent_failure(exc):
+            raise
+        print(f"    GPX Datei unbrauchbar, Tour bleibt ohne GPX: {exc}")
+        return metadata
+
     metadata["gpx_path"] = str(gpx_path)
-    metadata["distance"] = gpx_parser.parse_local_gpx(gpx_path)["distance_km"]
+    metadata["distance"] = distance
     return metadata
 
 

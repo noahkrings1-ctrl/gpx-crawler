@@ -49,7 +49,9 @@ class Response:
 def hikr(monkeypatch):
     """
     Nachbau von Hikr fuer run_tours: HTML je URL, ein Statuscode je URL
-    oder GPX fuer jede .gpx Adresse. requested haelt jede Anfrage fest.
+    oder GPX fuer jede .gpx Adresse. Steht eine .gpx Adresse in pages,
+    liefert sie deren Text statt einer GPX Datei. requested haelt jede
+    Anfrage fest.
     """
     state = {"pages": {}, "status": {}, "requested": []}
 
@@ -57,10 +59,10 @@ def hikr(monkeypatch):
         state["requested"].append(url)
         if url in state["status"]:
             return Response(state["status"][url])
-        if url.lower().endswith(".gpx"):
-            return Response(content=GPX_BYTES)
         if url in state["pages"]:
             return Response(text=state["pages"][url])
+        if url.lower().endswith(".gpx"):
+            return Response(content=GPX_BYTES)
         raise requests.ConnectionError(f"unbekannte URL {url}")
 
     monkeypatch.setattr("crawler.downloader.requests.get", _get)
@@ -325,3 +327,64 @@ def test_invalid_criteria_end_with_code_2_before_any_request(tmp_path, capsys, c
 
     assert code == 2
     assert "Discovery nicht moeglich" in capsys.readouterr().err
+
+
+# --- Kaputte GPX Dateien --------------------------------------------------
+
+GPX_URL = "https://f.hikr.org/files/gps71129.gpx"
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        {"pages": "<html><body>Datei nicht gefunden</body></html>"},
+        {"status": 404},
+        {"pages": "<gpx version='1.1'><trk><trkseg><trkpt lat="},
+    ],
+    ids=["html statt gpx", "http 404", "unlesbares gpx"],
+)
+def test_broken_gpx_file_keeps_the_tour(tmp_path, hikr, store, broken) -> None:
+    """Ein dauerhaft kaputter Anhang darf die lesbare Tour nicht mitreissen."""
+    hikr["pages"][post(1)] = HTML
+    if "pages" in broken:
+        hikr["pages"][GPX_URL] = broken["pages"]
+    else:
+        hikr["status"][GPX_URL] = broken["status"]
+
+    results, failures = run(tmp_path, [post(1)], store)
+
+    assert failures == []
+    assert results[0]["gpx_path"] is None
+    assert results[0]["distance"] is None
+    stored = store.get_by_url(post(1))
+    assert stored["title"] == "Testskitour"
+    assert stored["difficulty_ski"] == "WS"
+    assert stored["gpx_path"] is None
+    assert store.url_status(post(1)) == "gespeichert"
+
+
+def test_transient_gpx_failure_leaves_the_tour_open(tmp_path, hikr, store) -> None:
+    """Sonst ginge die GPX Datei still verloren. Der naechste Lauf versucht es erneut."""
+    hikr["pages"][post(1)] = HTML
+    hikr["status"][GPX_URL] = 503
+
+    results, failures = run(tmp_path, [post(1)], store)
+
+    assert results == []
+    assert len(failures) == 1
+    assert store.get_by_url(post(1)) is None
+    assert store.url_status(post(1)) is None
+    assert store.skip_reason(post(1)) is None
+
+
+def test_blocked_gpx_request_ends_the_run(tmp_path, hikr, store) -> None:
+    hikr["pages"][post(1)] = HTML
+    hikr["pages"][post(2)] = HTML_WITHOUT_GPX
+    hikr["status"][GPX_URL] = 403
+
+    results, failures = run(tmp_path, [post(1), post(2)], store)
+
+    assert results == []
+    assert isinstance(failures[0][1], CrawlBlockedError)
+    assert post(2) not in hikr["requested"]
+    assert store.url_status(post(1)) is None
