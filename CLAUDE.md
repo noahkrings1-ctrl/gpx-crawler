@@ -8,10 +8,9 @@ Aufbau einer Hochtouren Metadaten Datenbank, mit der gezielt Regionen gefiltert 
 ## Aktueller Stand (September 2026)
 
 Die Kette steht: Discovery oder feste Liste -> Tourseite -> Metadaten -> GPX
--> Distanz -> SQLite -> Suche mit query.py. Die Ablage enthaelt 48 echte
-Touren, 30 davon mit GPX Datei, darunter 36 Skitouren. Fuer Uri sind die
-Skitouren der Jahre 2025 (24) und 2026 (12) vollstaendig geholt. 254 Tests
-laufen gruen.
+-> Distanz -> SQLite -> Suche mit query.py. Den aktuellen Datenbestand zeigt
+die Datenbank selbst. Zahlen stehen hier bewusst nicht, sie wuerden nach
+jedem Lauf veralten.
 
 ### Discovery
 - crawler/discovery.py, Klasse HikrDiscovery mit DiscoveryError. find_urls
@@ -36,8 +35,6 @@ laufen gruen.
 - Erster echter Lauf im September 2026 fuer Uri Skitouren: mit --nur-urls
   2 Anfragen, danach 5 Touren mit 11 Anfragen in 22 Sekunden. Keine Sperre,
   Seitenstruktur und Tourdaten passten zum Parser
-- Danach Uri Skitouren 2026 (12 Touren, 2 Listenseiten) und 2025 (24 Touren,
-  4 Listenseiten, 45 Anfragen in 90 Sekunden) vollstaendig geholt
 
 ### Crawler
 - Downloader mit Browser Headern und brotli Support. Drossel, robots.txt und
@@ -105,7 +102,7 @@ laufen gruen.
 - --text sucht im Berichtstext und im Titel
 
 ### Tests
-- 254 Tests, alle ohne Netz und ohne Spuren auf der Platte
+- Alle Tests laufen ohne Netz und ohne Spuren auf der Platte
 - tests/conftest.py hat drei Helfer: Waechter fuer data/tours.sqlite3,
   Netzwaechter, der jede echte Socket Verbindung sperrt, und fake_clock, eine
   Uhr, die nur beim Schlafen vorrueckt. Pausen werden damit ohne Warten geprueft
@@ -189,6 +186,9 @@ laufen gruen.
 - Commits: Botschaft als Datei schreiben und mit git commit -F datei -- pfade
   committen. Heredocs in verketteten Shellbefehlen haben hier mehrfach alle
   Aenderungen in einen einzigen Commit gezogen
+- Keine Zahlen zum Datenbestand und keine Testanzahl in README und CLAUDE.md.
+  Sie veralten nach jedem Lauf. Den Bestand zeigt query.py, die Testanzahl
+  zeigt pytest
 
 ## Danach geplant
 - Tags per Wortliste auf main_text, in einer verknuepften Tabelle

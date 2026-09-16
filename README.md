@@ -15,9 +15,8 @@ angeben, etwa Skitouren in Uri zwischen 2020 und 2026, und der Crawler sucht
 die passenden Berichte selbst. Gecrawlt wird dabei gedrosselt, nach den Regeln
 der robots.txt und ohne eine URL je zweimal anzufragen.
 
-Die Ablage enthaelt 48 echte Touren aus der Schweiz, Oesterreich, Italien
-und Liechtenstein, 30 davon mit GPX Datei. Darunter sind 36 Skitouren aus Uri,
-die Jahre 2025 und 2026 vollstaendig. 254 Tests laufen gruen.
+Wie viele Touren die Ablage gerade enthaelt, zeigt `python query.py`, die
+Anzahl steht am Ende der Tabelle.
 
 ### Was funktioniert
 
@@ -60,7 +59,7 @@ Ablage und Suche
 
 Tests
 
-- 254 Tests, alle ohne Netzwerkzugriff und ohne Spuren auf der Platte
+- Alle Tests laufen ohne Netzwerkzugriff und ohne Spuren auf der Platte
 
 ### Grundarchitektur
 
@@ -235,9 +234,6 @@ Alle Optionen zeigt `python query.py --help`.
             max_elevation_gain=1500,
             max_duration_minutes=360,
         )
-
-Mit den aktuellen Daten liefert das zwei Touren: Laeged und Schaechentaler
-Windgaellen (T5, Uri) und Ronengrat (T4, Nidwalden).
 
 ### Worauf man beim Filtern achten sollte
 
