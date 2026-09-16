@@ -11,9 +11,9 @@ class HikrParser:
     """Parse local Hikr.org HTML files and extract tour metadata."""
 
     # Die deutschen Labels auf Hikr. Wir mappen sie auf unsere internen Keys.
-    # Die Ski Skala ist auf den Listenseiten als "Ski Schwierigkeit" belegt,
-    # auf einer Tourseite aber noch nicht gesehen. Deshalb beide denkbaren
-    # Schreibweisen.
+    # Die Ski Skala heisst auf Listen und Tourseiten "Ski Schwierigkeit",
+    # geprueft im September 2026. "Skitouren Schwierigkeit" bleibt als
+    # Rueckfall erhalten, falls Hikr die Beschriftung einmal aendert.
     LABEL_MAP = {
         "region": "region",
         "tour datum": "date",

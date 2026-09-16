@@ -8,8 +8,9 @@ Aufbau einer Hochtouren Metadaten Datenbank, mit der gezielt Regionen gefiltert 
 ## Aktueller Stand (September 2026)
 
 Die Kette steht: Discovery oder feste Liste -> Tourseite -> Metadaten -> GPX
--> Distanz -> SQLite -> Suche mit query.py. Die Ablage enthaelt zwoelf echte
-Touren, acht davon mit GPX Datei. 249 Tests laufen gruen.
+-> Distanz -> SQLite -> Suche mit query.py. Die Ablage enthaelt 17 echte
+Touren, 12 davon mit GPX Datei, darunter 5 Skitouren aus der ersten echten
+Discovery. 249 Tests laufen gruen.
 
 ### Discovery
 - crawler/discovery.py, Klasse HikrDiscovery mit DiscoveryError. find_urls
@@ -31,6 +32,9 @@ Touren, acht davon mit GPX Datei. 249 Tests laufen gruen.
 - main.py fuehrt den Lauf: zuerst offene URLs frueherer Laeufe, fuer den Rest
   Discovery ab gespeichertem Stand minus eine Seite. Vollstaendige Bereiche
   werden nur oben nach neuen Berichten abgesucht (stop_at_known_page)
+- Erster echter Lauf im September 2026 fuer Uri Skitouren: mit --nur-urls
+  2 Anfragen, danach 5 Touren mit 11 Anfragen in 22 Sekunden. Keine Sperre,
+  Seitenstruktur und Tourdaten passten zum Parser
 
 ### Crawler
 - Downloader mit Browser Headern und brotli Support. Drossel, robots.txt und
@@ -55,8 +59,8 @@ Touren, acht davon mit GPX Datei. 249 Tests laufen gruen.
   region_leaf. region_main ist in der Schweiz der Kanton, in Oesterreich eine
   Gebirgsgruppe, daher der neutrale Name
 - Vier Skalen: Wandern, Hochtouren, Klettern, Ski. Die Ski Skala heisst auf
-  den Listen "Ski Schwierigkeit", auf einer Tourseite noch nicht gesehen,
-  daher versteht LABEL_MAP auch "Skitouren Schwierigkeit"
+  Listen und Tourseiten "Ski Schwierigkeit", bestaetigt beim ersten echten
+  Lauf. LABEL_MAP versteht zusaetzlich "Skitouren Schwierigkeit" als Rueckfall
 - sport: Skitour vor Hochtour vor Wandern vor Klettern. Eine UIAA Note neben
   einer T Note ist nur eine Kletterstelle
 - main_text kommt nur aus div#main_text, nicht aus der ganzen Seite

@@ -15,8 +15,9 @@ angeben, etwa Skitouren in Uri zwischen 2020 und 2026, und der Crawler sucht
 die passenden Berichte selbst. Gecrawlt wird dabei gedrosselt, nach den Regeln
 der robots.txt und ohne eine URL je zweimal anzufragen.
 
-Die Ablage enthaelt zwoelf echte Touren aus der Schweiz, Oesterreich, Italien
-und Liechtenstein, acht davon mit GPX Datei. 249 Tests laufen gruen.
+Die Ablage enthaelt 17 echte Touren aus der Schweiz, Oesterreich, Italien
+und Liechtenstein, 12 davon mit GPX Datei. Darunter sind 5 Skitouren aus Uri,
+gefunden beim ersten echten Discovery Lauf. 249 Tests laufen gruen.
 
 ### Was funktioniert
 
@@ -258,9 +259,7 @@ Windgaellen (T5, Uri) und Ronengrat (T4, Nidwalden).
   nicht.
 - Der Parser kennt nur deutschsprachige Hikr Seiten. Die Spalte language
   existiert, wird aber nicht befuellt.
-- Die Ski Skala ist auf den Listenseiten als "Ski Schwierigkeit" belegt, auf
-  einer Tourseite aber noch nicht gesehen. Der Parser versteht deshalb zwei
-  Schreibweisen. Die Mountainbike Skala wird verworfen.
+- Die Mountainbike Skala wird verworfen.
 - Es gibt keine Schemamigration. Neue Spalten brauchen eine neue
   Datenbankdatei. Der Neuaufbau kommt ohne Netz aus, weil HTML und GPX
   Dateien lokal liegen.
