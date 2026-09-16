@@ -1,0 +1,12 @@
+# Nachbau fuer Tests, angelehnt an die Regeln von hikr.org im September 2026.
+User-agent: *
+Allow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: *
+Disallow: /user/*/ski/
+Disallow: /*?*date_year_month=
+Disallow: /map.php
+Disallow: /?

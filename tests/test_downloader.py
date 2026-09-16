@@ -107,8 +107,8 @@ def test_download_gpx_truncates_long_titles(tmp_path: Path, monkeypatch) -> None
     assert not title_part.endswith("-")
 
 
-def test_download_gpx_overwrites_existing_file(tmp_path: Path, monkeypatch) -> None:
-    """Ein zweiter Lauf ueber dieselbe Tour soll denselben Stand erzeugen."""
+def test_download_gpx_second_run_reuses_the_existing_file(tmp_path: Path, monkeypatch) -> None:
+    """Ein zweiter Lauf ueber dieselbe Tour erzeugt denselben Stand, ohne erneut zu laden."""
     monkeypatch.setattr(requests, "get", fake_get())
     arguments = dict(title="Sunnig Wichel", date_iso="2026-07-12", save_dir=tmp_path)
 
