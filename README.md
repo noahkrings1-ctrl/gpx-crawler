@@ -53,7 +53,7 @@ Parser
 Ablage und Suche
 
 - SQLite Datei data/tours.sqlite3 mit Touren, bekannten URLs und Suchstand
-- Filter nach Region, Sportart, Schwierigkeit, Aufstieg, Gehzeit,
+- Filter nach Region, Sportart, Schwierigkeit, Tourtyp, Aufstieg, Gehzeit,
   Datumsbereich und Stichwort, beliebig kombinierbar
 - Suchinterface query.py mit Tabellenausgabe
 
@@ -70,6 +70,7 @@ Jeder Baustein kennt nur sein eigenes Fachgebiet:
     crawler/discovery.py    findet Tour URLs in den Hikr Listen
     parsers/hikr_parser.py  kennt Hikr Tourseiten, liefert ein Metadaten Dictionary
     parsers/gpx_parser.py   kennt GPX, liefert Distanz und Punktzahl
+    parsers/grades.py       kennt Stufen und Tourtypen, gleich fuer Discovery und Suche
     storage/tour_store.py   kennt SQL, sonst weiss niemand davon
     main.py                 fuehrt die Kette aus, mit fester Liste oder Discovery
     query.py                uebersetzt Kommandozeilenargumente in eine Suche
@@ -109,6 +110,7 @@ Vier Entscheidungen, die den Aufbau tragen:
     python main.py --discover --region Uri --kategorie skitouren --von 2020 --bis 2026 --max 90
     python main.py --discover --region 146 --kategorie ski --nur-urls
     python main.py --discover --region 146 --kategorie wandern --von 2026 --bis 2026 --schwierigkeit T4 T5 T6
+    python main.py --discover --region 146 --kategorie hochtouren --von 2026 --bis 2026 --tourtyp ski-hochtour --schwierigkeit WS ZS
 
 Ohne `--discover` arbeitet `main.py` ausschliesslich die feste Liste
 TOUR_URLS ab. Die Discovery startet nie von selbst.
@@ -118,7 +120,8 @@ TOUR_URLS ab. Die Discovery startet nie von selbst.
 | `--region` | ID aus der URL der Regionsseite, etwa 146 aus region146.html fuer Uri, oder ein hinterlegter Name wie Uri, Graubünden, Schweiz |
 | `--kategorie` | alle, wandern, hochtouren, klettern, skitouren, schneeschuhe, klettersteig, eisklettern, oder der Hikr Code wie ski |
 | `--von`, `--bis` | Tourdatum als Jahr oder Datum, beide Grenzen eingeschlossen |
-| `--schwierigkeit` | nur Eintraege mit dieser Bewertung, z.B. T4 T5 T6 fuer Alpinwanderungen. Mehrere Werte gelten als oder, verglichen wird als Teiltext |
+| `--schwierigkeit` | nur Eintraege mit dieser Stufe auf irgendeiner Skala, z.B. T4 T5 T6 fuer Alpinwanderungen oder WS ZS. ZS trifft ZS-, ZS und ZS+, aber nicht WS. Mehrere Werte gelten als oder |
+| `--tourtyp` | nur Touren mit Hochtourennote: `ski-hochtour` (mit Skinote), `alpinwandern-hochtour` (mit T4 bis T6, ohne Skinote) oder `hochtour` (weder noch) |
 | `--max` | neue Touren je Lauf, Standard 20, hoechstens 100 |
 | `--nur-urls` | gefundene URLs nur anzeigen und vormerken, keine Tour laden |
 
@@ -135,9 +138,10 @@ So arbeitet sie:
   weiterer Lauf nur oben nach neuen Berichten.
 - Gefundene URLs landen sofort mit Status neu in der Datenbank. Mit
   `--nur-urls` bleiben sie dort, der naechste Lauf laedt sie zuerst.
-- Ein Filter auf die Schwierigkeit wird schon auf der Listenseite geprueft,
-  sie zeigt jede Bewertung in Kurzform, etwa T4-. Nicht passende Touren
-  werden nie angefragt. Der Filter ist eine eigene Suche mit eigenem Stand.
+- Filter auf Schwierigkeit und Tourtyp werden schon auf der Listenseite
+  geprueft, sie zeigt jede Note mit ihrer Skala in Kurzform, etwa T4-. Nicht
+  passende Touren werden nie angefragt. Jeder Filter ist eine eigene Suche
+  mit eigenem Stand.
 
 Doppeltes Crawlen ist ausgeschlossen:
 
@@ -201,6 +205,7 @@ Einschraenkung, ohne Angabe kommt die ganze Ablage:
     python query.py --sportart Wandern --schwierigkeit T4 T5
     python query.py --sportart Skitour --von 2020 --bis 2025
     python query.py --text biwak
+    python query.py --region Uri --tourtyp ski-hochtour --schwierigkeit ZS
     python query.py --sortierung distance_km --absteigend --limit 5
 
 Die Ausgabe ist eine Tabelle mit Datum, Sportart, Region, Schwierigkeit,
@@ -218,6 +223,9 @@ Aufstieg, Dauer, Distanz und Titel:
 `--schwierigkeit` nimmt einen oder mehrere Werte. `--schwierigkeit T4 T5` und
 `--schwierigkeit T4 --schwierigkeit T5` sind gleichwertig. Mehrere Werte gelten
 untereinander als oder, mit den uebrigen Filtern bleibt es bei und.
+
+`--tourtyp` unterscheidet Touren mit Hochtourennote: `ski-hochtour`,
+`alpinwandern-hochtour` oder `hochtour`.
 
 `--von` und `--bis` nehmen ein Jahr oder ein Datum. Ein Jahr steht fuer das
 ganze Jahr.
@@ -250,9 +258,9 @@ Alle Optionen zeigt `python query.py --help`.
 - Mehrtaegige Touren haben keine Gehzeit in Minuten, sondern eine Anzahl
   Tage. Ein Filter auf die Gehzeit laesst sie deshalb heraus, eine
   Sechstagestour ist keine Tour unter fuenf Stunden.
-- Die Schwierigkeit wird als Teiltext in allen Skalen verglichen. T3 trifft
-  auch T3+ und ZS auch ZS-, II aber auch III. Einzelne Buchstaben wie S oder
-  L treffen fast jede Tour.
+- Die Schwierigkeit wird als Stufe in allen Skalen verglichen. T3 trifft
+  T3-, T3 und T3+, ZS+ nur ZS+. S trifft nicht WS oder ZS, II nicht III.
+  Ein Wort wie alpinwandern ist keine Stufe und wird abgelehnt.
 - Ein Datumsfilter laesst Touren ohne Datum heraus.
 - Die Stichwortsuche findet nur, was schon heruntergeladen ist.
 
@@ -305,7 +313,7 @@ Tests:
 ## Verzeichnisse
 
 - crawler         Download, Hoeflichkeitsregeln und Discovery
-- parsers         Extraktion aus Tourseiten und aus GPX Dateien
+- parsers         Extraktion aus Tourseiten und GPX Dateien, Stufen und Tourtypen
 - storage         Ablage der Metadaten in SQLite
 - data            Lokale Ablage von HTML, GPX und der Datenbank, nicht im Repo
 - tests           Testcode

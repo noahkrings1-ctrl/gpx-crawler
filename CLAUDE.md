@@ -29,12 +29,12 @@ jedem Lauf veralten.
   und Kategorie
 - Strukturwaechter: Blaetterblock ohne Eintraege oder nicht absteigende Daten
   bei Datumsfilter ergeben einen DiscoveryError
-- --schwierigkeit filtert schon auf der Listenseite ueber die Kurzform der
-  Bewertung, etwa T4-, als Teiltext wie in query.py. Nicht passende Touren
-  werden nie angefragt. Der Filter ist eine eigene Suche: Suchstand und
-  offene URLs laufen unter search_key, etwa ped:t4,t5,t6 statt ped. Der
-  Datumsbereich endet trotzdem am ersten zu alten Eintrag, egal welche
-  Bewertung er traegt
+- --schwierigkeit und --tourtyp filtern schon auf der Listenseite. Jeder
+  Eintrag traegt seine Noten als Paare aus Skala und Kurzform, etwa
+  (hochtouren, WS). Nicht passende Touren werden nie angefragt. Jeder Filter
+  ist eine eigene Suche: Suchstand und offene URLs laufen unter search_key,
+  etwa ped:t4,t5,t6 oder alp:ws,zs|ski-hochtour. Der Datumsbereich endet
+  trotzdem am ersten zu alten Eintrag, egal welche Bewertung er traegt
 - main.py fuehrt den Lauf: zuerst offene URLs frueherer Laeufe, fuer den Rest
   Discovery ab gespeichertem Stand minus eine Seite. Vollstaendige Bereiche
   werden nur oben nach neuen Berichten abgesucht (stop_at_known_page)
@@ -73,6 +73,12 @@ jedem Lauf veralten.
 - sport: Skitour vor Hochtour vor Wandern vor Klettern. Eine UIAA Note neben
   einer T Note ist nur eine Kletterstelle
 - main_text kommt nur aus div#main_text, nicht aus der ganzen Seite
+- parsers/grades.py haelt die Regeln fuer Stufen und Tourtypen. Discovery und
+  Ablage nutzen dieselben Funktionen. Stufen werden exakt verglichen: ZS
+  trifft ZS-, ZS und ZS+, S nicht WS, II nicht III. Was keine Stufe ist,
+  wird abgelehnt
+- Tourtypen fuer Touren mit Hochtourennote: ski-hochtour (mit Skinote),
+  alpinwandern-hochtour (mit T4 bis T6, ohne Skinote), hochtour (weder noch)
 - GpxParser berechnet die Distanz horizontal in Kilometern mit gpxpy. Routen
   ohne Track werden mitgezaehlt, ohne verwertbare Punkte gibt es None statt 0.0
 
@@ -84,12 +90,16 @@ jedem Lauf veralten.
   oder fehlgeschlagen, dazu Region, Kategorie und Tourdatum aus der Liste
 - Tabelle discovery_progress: resume_skip und completed je Region, Kategorie
   und Zeitraum. completed bleibt gesetzt, wenn es einmal gesetzt war
-- find_tours filtert nach region, sport, difficulty, min_elevation_gain,
-  max_elevation_gain, max_duration_minutes, date_from, date_to und text, dazu
-  order_by, descending und limit. Fehlender Filter heisst kein Filter
-- region, difficulty und text vergleichen als Teiltext nach normalise (klein
-  geschrieben, Umlaute ausgeschrieben), damit "Österreich" und "Oesterreich"
-  dasselbe finden. text sucht in main_text und title
+- find_tours filtert nach region, sport, difficulty, tour_type,
+  min_elevation_gain, max_elevation_gain, max_duration_minutes, date_from,
+  date_to und text, dazu order_by, descending und limit. Fehlender Filter
+  heisst kein Filter
+- region und text vergleichen als Teiltext nach normalise (klein geschrieben,
+  Umlaute ausgeschrieben), damit "Österreich" und "Oesterreich" dasselbe
+  finden. text sucht in main_text und title
+- difficulty vergleicht die Stufe exakt ueber die SQL Funktion grade_match,
+  tour_type filtert ueber die SQL Funktion tour_type. Beide kommen aus
+  parsers/grades.py
 - difficulty nimmt einen String oder eine Liste, mehrere Werte gelten als oder.
   Leere und doppelte Begriffe fallen heraus
 - Werte gehen nur als Platzhalter ins SQL, die Sortierspalte ist ueber die
@@ -106,6 +116,7 @@ jedem Lauf veralten.
   --schwierigkeit ergaenzt, statt den ersten Wert still zu ueberschreiben
 - --von und --bis nehmen Jahr oder Datum, ein Jahr steht fuer das ganze Jahr
 - --text sucht im Berichtstext und im Titel
+- --tourtyp waehlt ski-hochtour, alpinwandern-hochtour oder hochtour
 
 ### Tests
 - Alle Tests laufen ohne Netz und ohne Spuren auf der Platte
@@ -145,8 +156,7 @@ jedem Lauf veralten.
   laufen gegen Nachbauten in tests/fixtures
 
 ## Bekannte Grenzen
-- Die Schwierigkeit ist ein Teiltextfilter, kein Bereichsfilter. II trifft
-  auch III, einzelne Buchstaben wie S oder L treffen fast alles
+- Die Schwierigkeit ist kein Bereichsfilter, bis WS geht noch nicht
 - Nur deutschsprachige Hikr Seiten, die Spalte language wird nicht befuellt
 - Die Mountainbike Skala wird verworfen
 - Keine Schemamigration. CREATE TABLE IF NOT EXISTS ergaenzt keine Spalten in
@@ -163,6 +173,7 @@ jedem Lauf veralten.
 - crawler/discovery.py      Klasse HikrDiscovery mit DiscoveryError
 - parsers/hikr_parser.py    Klasse HikrParser mit LABEL_MAP
 - parsers/gpx_parser.py     Klasse GpxParser mit GpxParseError
+- parsers/grades.py         Stufen und Tourtypen fuer Discovery und Ablage
 - storage/tour_store.py     Klasse TourStore mit TourStoreError, einziges SQL
 - data/html                 Lokale HTML Ablage, per gitignore ausgeschlossen
 - data/gpx                  Lokale GPX Ablage, per gitignore ausgeschlossen
