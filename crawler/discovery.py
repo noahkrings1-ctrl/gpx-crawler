@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -119,6 +119,9 @@ MONTHS_SHORT = {
 
 POST_URL = re.compile(r"^https://www\.hikr\.org/tour/post\d+\.html$")
 
+# Jede Bewertung auf der Listenseite traegt einen title wie "Wandern Schwierigkeit".
+DIFFICULTY_BADGE = re.compile(r"Schwierigkeit$")
+
 
 class DiscoveryError(Exception):
     """Raised when discovery criteria are invalid or a listing page cannot be read."""
@@ -126,10 +129,14 @@ class DiscoveryError(Exception):
 
 @dataclass(frozen=True)
 class ListingEntry:
-    """Ein Bericht auf einer Listenseite, mit Tourdatum falls lesbar."""
+    """
+    Ein Bericht auf einer Listenseite, mit Tourdatum falls lesbar und den
+    Bewertungen in der Kurzform der Liste, etwa ("T4-",) oder ("T6", "ZS", "IV").
+    """
 
     url: str
     tour_date: Optional[str]
+    difficulties: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -218,6 +225,36 @@ def validate_max_results(max_results: int) -> int:
             f"war {max_results!r}"
         )
     return max_results
+
+
+def difficulty_terms(schwierigkeit: str | Sequence[str] | None) -> list[str]:
+    """
+    Bereinigt die gesuchten Bewertungen, nach denselben Regeln wie der
+    Schwierigkeitsfilter in query.py. Ein einzelner String wird nicht Zeichen
+    fuer Zeichen gelesen, leere und doppelte Begriffe fallen weg. Sortiert,
+    damit T5 T4 und T4 T5 dieselbe Suche sind.
+    """
+    if schwierigkeit is None:
+        return []
+    if isinstance(schwierigkeit, str):
+        schwierigkeit = [schwierigkeit]
+    terms = (_key(term) for term in schwierigkeit)
+    return sorted(dict.fromkeys(term for term in terms if term))
+
+
+def search_key(code: str, terms: Sequence[str] = ()) -> str:
+    """
+    Schluessel einer Suche fuer Suchstand und offene URLs. Ein Filter auf die
+    Schwierigkeit ist eine eigene Suche. Sonst gaelte eine fertig durchsuchte
+    Suche nach T4 bis T6 auch fuer alle Wanderungen als fertig.
+    """
+    return f"{code}:{','.join(terms)}" if terms else code
+
+
+def matches_difficulty(entry: ListingEntry, terms: Sequence[str]) -> bool:
+    """Wie in query.py als Teiltext, T4 trifft also auch T4- und T4+."""
+    values = [_key(value) for value in entry.difficulties]
+    return any(term in value for term in terms for value in values)
 
 
 def _date_bound(value: object, end: bool) -> Optional[str]:
@@ -309,7 +346,12 @@ def parse_listing(html: str, region_id: int, code: str, current_skip: int = 0) -
             if date_element is not None
             else None
         )
-        entries.append(ListingEntry(url, tour_date))
+        difficulties = tuple(
+            badge.get_text(" ", strip=True)
+            for badge in item.find_all(attrs={"title": DIFFICULTY_BADGE})
+            if badge.get_text(strip=True)
+        )
+        entries.append(ListingEntry(url, tour_date, difficulties))
 
     navigator = soup.select_one("div.navigator")
     next_url = None
@@ -370,10 +412,12 @@ class HikrDiscovery:
         von: object = None,
         bis: object = None,
         is_known: Optional[Callable[[str], bool]] = None,
+        schwierigkeit: str | Sequence[str] | None = None,
     ) -> list[str]:
         """Kurzform von discover, liefert nur die URLs."""
         return self.discover(
-            region, kategorie, max_results, von=von, bis=bis, is_known=is_known
+            region, kategorie, max_results, von=von, bis=bis, is_known=is_known,
+            schwierigkeit=schwierigkeit,
         ).urls
 
     def discover(
@@ -386,6 +430,7 @@ class HikrDiscovery:
         is_known: Optional[Callable[[str], bool]] = None,
         start_skip: int = 0,
         stop_at_known_page: bool = False,
+        schwierigkeit: str | Sequence[str] | None = None,
     ) -> DiscoveryResult:
         """
         Blaettert durch die Liste und sammelt bis zu max_results URLs.
@@ -393,6 +438,11 @@ class HikrDiscovery:
         Alle Kriterien werden geprueft, bevor die erste Anfrage rausgeht.
         Bekannte URLs (is_known) werden uebersprungen und zaehlen nicht mit.
         Einträge ausserhalb des Datumsbereichs zaehlen ebenfalls nicht.
+
+        Mit schwierigkeit zaehlen nur Eintraege, deren Bewertung auf der
+        Listenseite einen der Begriffe enthaelt. Die uebrigen werden nie
+        angefragt. Der Datumsbereich endet trotzdem am ersten zu alten
+        Eintrag, egal welche Bewertung er traegt.
 
         Schluss ist, sobald genug URLs da sind, ein Eintrag aelter als von
         auftaucht, die Liste endet oder max_pages Seiten gelesen sind. Mit
@@ -404,6 +454,7 @@ class HikrDiscovery:
         region_id = resolve_region(region)
         code = resolve_category(kategorie)
         date_from, date_to = date_bounds(von, bis)
+        terms = difficulty_terms(schwierigkeit)
         if isinstance(start_skip, bool) or not isinstance(start_skip, int) or start_skip < 0:
             raise DiscoveryError(f"start_skip muss eine Zahl ab 0 sein, war {start_skip!r}")
 
@@ -438,6 +489,9 @@ class HikrDiscovery:
                         result.completed = True
                         stop = True
                         break
+
+                if terms and not matches_difficulty(entry, terms):
+                    continue
 
                 in_range += 1
                 if is_known is not None and is_known(entry.url):

@@ -159,12 +159,12 @@ class FakeDiscovery:
         self.calls: list[dict] = []
 
     def discover(self, region, kategorie, max_results, von=None, bis=None,
-                 is_known=None, start_skip=0, stop_at_known_page=False):
+                 is_known=None, start_skip=0, stop_at_known_page=False, schwierigkeit=None):
         self.calls.append(
             {
                 "region": region, "kategorie": kategorie, "max_results": max_results,
                 "von": von, "bis": bis, "start_skip": start_skip,
-                "stop_at_known_page": stop_at_known_page,
+                "stop_at_known_page": stop_at_known_page, "schwierigkeit": schwierigkeit,
             }
         )
         found = [entry for entry in self.entries if not (is_known and is_known(entry.url))]
@@ -258,6 +258,7 @@ def test_known_urls_are_never_returned_twice(store) -> None:
         ["--max", "5"],
         ["--max", "0"],
         ["--nur-urls"],
+        ["--schwierigkeit", "T4"],
     ],
 )
 def test_discovery_options_are_rejected_without_discover(argv: list[str]) -> None:
@@ -388,3 +389,53 @@ def test_blocked_gpx_request_ends_the_run(tmp_path, hikr, store) -> None:
     assert isinstance(failures[0][1], CrawlBlockedError)
     assert post(2) not in hikr["requested"]
     assert store.url_status(post(1)) is None
+
+
+# --- Discovery mit Filter auf die Schwierigkeit ---------------------------
+
+
+def test_difficulty_filter_is_passed_on_and_kept_as_its_own_search(store) -> None:
+    discovery = FakeDiscovery(entries(1, 2, day="2026-07-01"), resume_skip=20, completed=True)
+
+    urls = main_module.discover_urls(
+        discovery, store, "Uri", "wandern", 2026, 2026, max_results=10,
+        schwierigkeit=["T5", "T4", "T6"],
+    )
+
+    assert urls == [post(1), post(2)]
+    assert discovery.calls[0]["schwierigkeit"] == ["t4", "t5", "t6"]
+    assert store.pending_urls(146, "ped:t4,t5,t6", "2026-01-01", "2026-12-31") == urls
+    assert store.get_progress(146, "ped:t4,t5,t6", "2026-01-01", "2026-12-31")["completed"] is True
+    assert store.get_progress(146, "ped", "2026-01-01", "2026-12-31") is None
+
+
+def test_open_urls_of_an_unfiltered_search_are_not_served_to_a_filtered_one(store) -> None:
+    """Sonst luede ein Lauf nach T4 bis T6 offene T2 Touren aus einem Lauf ohne Filter."""
+    store.add_discovered([(post(9), "2026-07-01")], 146, "ped")
+    discovery = FakeDiscovery(entries(1, day="2026-08-01"))
+
+    urls = main_module.discover_urls(
+        discovery, store, 146, "wandern", 2026, 2026, max_results=5, schwierigkeit=["T4"],
+    )
+
+    assert urls == [post(1)]
+
+
+def test_schwierigkeit_on_the_command_line_reaches_the_discovery(tmp_path, monkeypatch) -> None:
+    created: list[FakeDiscovery] = []
+
+    def make(downloader):
+        created.append(FakeDiscovery(entries(5)))
+        return created[-1]
+
+    monkeypatch.setattr(main_module, "HikrDiscovery", make)
+    monkeypatch.setattr(main_module, "run_tours", lambda urls, **kwargs: ([], []))
+
+    code = main_module.main(
+        ["--discover", "--region", "146", "--kategorie", "wandern", "--von", "2026",
+         "--bis", "2026", "--schwierigkeit", "T4", "T5", "--schwierigkeit", "T6",
+         "--datenbank", str(tmp_path / "tours.sqlite3")]
+    )
+
+    assert code == 0
+    assert created[0].calls[0]["schwierigkeit"] == ["t4", "t5", "t6"]

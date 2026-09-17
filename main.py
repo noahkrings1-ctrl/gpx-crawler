@@ -13,8 +13,10 @@ from crawler.discovery import (
     DiscoveryError,
     HikrDiscovery,
     date_bounds,
+    difficulty_terms,
     resolve_category,
     resolve_region,
+    search_key,
     validate_max_results,
 )
 from crawler.downloader import (
@@ -59,7 +61,9 @@ REQUEST_DELAY_SECONDS = 1.5
 REUSE_LOCAL_HTML = True
 
 # Optionen, die nur zusammen mit --discover einen Sinn ergeben.
-DISCOVERY_ONLY_OPTIONS = ("region", "kategorie", "von", "bis", "max", "nur_urls")
+DISCOVERY_ONLY_OPTIONS = (
+    "region", "kategorie", "von", "bis", "max", "nur_urls", "schwierigkeit",
+)
 
 
 def process_tour(
@@ -212,6 +216,7 @@ def discover_urls(
     von: object = None,
     bis: object = None,
     max_results: int = DEFAULT_MAX_RESULTS,
+    schwierigkeit: str | Sequence[str] | None = None,
 ) -> list[str]:
     """
     Stellt die URLs fuer einen Discovery Lauf zusammen.
@@ -221,19 +226,24 @@ def discover_urls(
     Rest wird auf Hikr gesucht, und zwar dort, wo die Suche zuletzt stand,
     eine Seite frueher als Ueberlappung. Ist die Suche schon vollstaendig,
     wird nur oben nach neuen Berichten gesehen.
+
+    Ein Filter auf die Schwierigkeit ist eine eigene Suche, mit eigenem
+    Suchstand und eigenen offenen URLs unter search_key, etwa ped:t4,t5,t6.
     """
     validate_max_results(max_results)
     region_id = resolve_region(region)
     code = resolve_category(kategorie)
     date_from, date_to = date_bounds(von, bis)
+    terms = difficulty_terms(schwierigkeit)
+    key = search_key(code, terms)
 
-    pending = store.pending_urls(region_id, code, date_from, date_to, limit=max_results)
+    pending = store.pending_urls(region_id, key, date_from, date_to, limit=max_results)
     remaining = max_results - len(pending)
     if remaining <= 0:
         print(f"Discovery: {len(pending)} offene URLs aus frueheren Laeufen, keine Suche noetig")
         return pending
 
-    progress = store.get_progress(region_id, code, date_from, date_to)
+    progress = store.get_progress(region_id, key, date_from, date_to)
     completed_before = bool(progress and progress["completed"])
     if progress is None or completed_before:
         start_skip = 0
@@ -249,17 +259,18 @@ def discover_urls(
         is_known=store.is_known_url,
         start_skip=start_skip,
         stop_at_known_page=completed_before,
+        schwierigkeit=terms,
     )
 
     store.add_discovered(
-        [(entry.url, entry.tour_date) for entry in result.found], region_id, code
+        [(entry.url, entry.tour_date) for entry in result.found], region_id, key
     )
     completed = result.completed or completed_before
-    store.save_progress(region_id, code, date_from, date_to, result.resume_skip, completed)
+    store.save_progress(region_id, key, date_from, date_to, result.resume_skip, completed)
 
     state = "vollstaendig durchsucht" if completed else f"weiter ab skip={result.resume_skip}"
     print(
-        f"Discovery region{region_id}/{code}: {len(pending)} offen aus frueheren Laeufen, "
+        f"Discovery region{region_id}/{key}: {len(pending)} offen aus frueheren Laeufen, "
         f"{len(result.found)} neu gefunden, {result.pages_read} Listenseiten gelesen, "
         f"Suchbereich {state}"
     )
@@ -312,6 +323,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  python main.py --discover --region Uri --kategorie skitouren "
             "--von 2020 --bis 2026 --max 90\n"
             "  python main.py --discover --region 146 --kategorie ski --nur-urls\n"
+            "  python main.py --discover --region 146 --kategorie wandern "
+            "--von 2026 --bis 2026 --schwierigkeit T4 T5 T6\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -327,6 +340,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--von", metavar="JAHR_ODER_DATUM", help="Tourdatum ab, z.B. 2020")
     parser.add_argument("--bis", metavar="JAHR_ODER_DATUM", help="Tourdatum bis, z.B. 2026")
+    parser.add_argument(
+        "--schwierigkeit",
+        nargs="+",
+        action="extend",
+        metavar="STUFE",
+        help="Nur Eintraege mit dieser Bewertung laden, z.B. T4 T5 T6 fuer "
+        "Alpinwanderungen. Gelesen wird die Kurzform auf der Listenseite",
+    )
     parser.add_argument(
         "--max",
         type=int,
@@ -386,6 +407,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     urls = discover_urls(
                         discovery, store, args.region, args.kategorie,
                         args.von, args.bis, max_results,
+                        schwierigkeit=args.schwierigkeit,
                     )
                 except DiscoveryError as exc:
                     print(f"Discovery nicht moeglich: {exc}", file=sys.stderr)

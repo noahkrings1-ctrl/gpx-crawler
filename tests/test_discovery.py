@@ -10,11 +10,15 @@ from crawler.discovery import (
     MAX_RESULTS_LIMIT,
     DiscoveryError,
     HikrDiscovery,
+    ListingEntry,
     date_bounds,
+    difficulty_terms,
+    matches_difficulty,
     parse_listing,
     parse_listing_date,
     resolve_category,
     resolve_region,
+    search_key,
 )
 from crawler.downloader import CrawlBlockedError, DownloadError, Downloader
 from crawler.politeness import MIN_DELAY_SECONDS, RateLimiter, RetryPolicy, RobotsPolicy
@@ -397,3 +401,73 @@ def test_listing_forbidden_by_robots_is_never_requested(monkeypatch, fake_clock)
         HikrDiscovery(real_downloader(fake_clock)).find_urls(146, "ski")
 
     assert calls == ["https://www.hikr.org/robots.txt"]
+
+
+# --- Filter auf die Schwierigkeit -----------------------------------------
+
+
+def test_listing_entries_carry_their_short_difficulties() -> None:
+    ski = parse_listing(fixture("ski_seite_1.html"), 146, "ski", 0)
+    alle = parse_listing(fixture("alle_seite_1.html"), 146, "tour", 0)
+
+    assert ski.entries[1].difficulties == ("WS", "ZS")
+    assert alle.entries[0].difficulties == ("T4-",)
+    assert alle.entries[1].difficulties == ("T6", "ZS", "IV")
+    assert alle.entries[2].difficulties == ("S",)
+
+
+def test_difficulty_terms_are_cleaned_and_sorted() -> None:
+    assert difficulty_terms(["T5", "t4", " ", "T4"]) == ["t4", "t5"]
+    assert difficulty_terms("T4") == ["t4"]
+    assert difficulty_terms(None) == []
+
+
+def test_a_difficulty_filter_is_its_own_search() -> None:
+    assert search_key("ped", ["t4", "t5", "t6"]) == "ped:t4,t5,t6"
+    assert search_key("ped", []) == "ped"
+
+
+def test_difficulty_matches_as_partial_grade() -> None:
+    entry = ListingEntry(post(1), "2026-08-26", ("T4-",))
+
+    assert matches_difficulty(entry, ["t4"])
+    assert not matches_difficulty(entry, ["t5", "t6"])
+    assert not matches_difficulty(ListingEntry(post(2), None), ["t4"])
+
+
+def test_only_matching_entries_are_collected_and_counted(ski_pages) -> None:
+    result = HikrDiscovery(ski_pages).discover(146, "ski", max_results=5, schwierigkeit=["ZS"])
+
+    assert result.urls == [post(n) for n in (900002, 900005, 900007, 900008, 900009)]
+    assert ski_pages.requested == [SKI]
+
+
+def test_single_difficulty_string_is_not_split_into_letters(ski_pages) -> None:
+    as_string = HikrDiscovery(ski_pages).find_urls(146, "ski", max_results=3, schwierigkeit="ZS")
+    as_list = HikrDiscovery(ski_pages).find_urls(146, "ski", max_results=3, schwierigkeit=["ZS"])
+
+    assert as_string == as_list == [post(900002), post(900005), post(900007)]
+
+
+def test_date_range_still_ends_at_the_first_older_entry_whatever_its_difficulty(ski_pages) -> None:
+    """Sonst blaetterte ein Filter ohne weitere Treffer bis ans Listenende."""
+    result = HikrDiscovery(ski_pages).discover(
+        146, "ski", max_results=50, von=2021, bis=2025, schwierigkeit=["L"]
+    )
+
+    assert result.urls == [post(900013)]
+    assert result.completed is True
+    assert ski_pages.requested == [SKI, SKI + "?skip=10"]
+
+
+def test_known_page_check_counts_only_matching_entries(ski_pages) -> None:
+    known = {post(n) for n in (900002, 900005, 900007, 900008, 900009)}
+
+    result = HikrDiscovery(ski_pages).discover(
+        146, "ski", max_results=5, schwierigkeit="ZS",
+        is_known=known.__contains__, stop_at_known_page=True,
+    )
+
+    assert result.urls == []
+    assert result.completed is True
+    assert ski_pages.requested == [SKI]
