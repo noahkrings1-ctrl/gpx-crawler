@@ -6,6 +6,15 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
+from parsers.grades import (
+    GRADE_SCALES,
+    TOUR_TYPES,
+    grade_matches,
+    grade_terms,
+    scale_from_title,
+    tour_type,
+)
+
 from .downloader import UMLAUT_MAP, Downloader
 
 
@@ -131,12 +140,13 @@ class DiscoveryError(Exception):
 class ListingEntry:
     """
     Ein Bericht auf einer Listenseite, mit Tourdatum falls lesbar und den
-    Bewertungen in der Kurzform der Liste, etwa ("T4-",) oder ("T6", "ZS", "IV").
+    Noten als Paare aus Skala und Kurzform, etwa
+    (("wandern", "T6"), ("hochtouren", "ZS"), ("klettern", "IV")).
     """
 
     url: str
     tour_date: Optional[str]
-    difficulties: tuple[str, ...] = ()
+    difficulties: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -229,32 +239,54 @@ def validate_max_results(max_results: int) -> int:
 
 def difficulty_terms(schwierigkeit: str | Sequence[str] | None) -> list[str]:
     """
-    Bereinigt die gesuchten Bewertungen, nach denselben Regeln wie der
-    Schwierigkeitsfilter in query.py. Ein einzelner String wird nicht Zeichen
-    fuer Zeichen gelesen, leere und doppelte Begriffe fallen weg. Sortiert,
-    damit T5 T4 und T4 T5 dieselbe Suche sind.
+    Bereinigt die gesuchten Stufen nach denselben Regeln wie query.py, siehe
+    parsers.grades.grade_terms. Sortiert, damit T5 T4 und T4 T5 dieselbe
+    Suche sind. Was keine Stufe ist, wird vor der ersten Anfrage abgelehnt.
     """
-    if schwierigkeit is None:
-        return []
-    if isinstance(schwierigkeit, str):
-        schwierigkeit = [schwierigkeit]
-    terms = (_key(term) for term in schwierigkeit)
-    return sorted(dict.fromkeys(term for term in terms if term))
+    try:
+        return grade_terms(schwierigkeit)
+    except ValueError as exc:
+        raise DiscoveryError(str(exc)) from exc
 
 
-def search_key(code: str, terms: Sequence[str] = ()) -> str:
+def validate_tour_type(tourtyp: Optional[str]) -> Optional[str]:
+    if tourtyp is not None and tourtyp not in TOUR_TYPES:
+        raise DiscoveryError(
+            f"Tourtyp {tourtyp!r} ist unbekannt. Moeglich sind {', '.join(TOUR_TYPES)}"
+        )
+    return tourtyp
+
+
+def search_key(code: str, terms: Sequence[str] = (), tourtyp: Optional[str] = None) -> str:
     """
-    Schluessel einer Suche fuer Suchstand und offene URLs. Ein Filter auf die
-    Schwierigkeit ist eine eigene Suche. Sonst gaelte eine fertig durchsuchte
-    Suche nach T4 bis T6 auch fuer alle Wanderungen als fertig.
+    Schluessel einer Suche fuer Suchstand und offene URLs, etwa ped:t4,t5,t6
+    oder alp:ws,zs|ski-hochtour. Jeder Filter ist eine eigene Suche. Sonst
+    gaelte eine fertig durchsuchte Suche nach T4 bis T6 auch fuer alle
+    Wanderungen als fertig.
     """
-    return f"{code}:{','.join(terms)}" if terms else code
+    key = f"{code}:{','.join(terms)}" if terms else code
+    return f"{key}|{tourtyp}" if tourtyp else key
 
 
 def matches_difficulty(entry: ListingEntry, terms: Sequence[str]) -> bool:
-    """Wie in query.py als Teiltext, T4 trifft also auch T4- und T4+."""
-    values = [_key(value) for value in entry.difficulties]
-    return any(term in value for term in terms for value in values)
+    """
+    Stufe auf irgendeiner Skala, exakt verglichen: ZS trifft ZS-, ZS und ZS+,
+    aber nicht WS. Die Mountainbike Skala zaehlt nicht.
+    """
+    return any(
+        grade_matches(value, term)
+        for scale, value in entry.difficulties
+        if scale in GRADE_SCALES
+        for term in terms
+    )
+
+
+def entry_tour_type(entry: ListingEntry) -> Optional[str]:
+    """Tourtyp eines Listeneintrags aus seinen Noten, siehe parsers.grades.tour_type."""
+    grades: dict[str, str] = {}
+    for scale, value in entry.difficulties:
+        grades.setdefault(scale, value)
+    return tour_type(grades.get("wandern"), grades.get("hochtouren"), grades.get("ski"))
 
 
 def _date_bound(value: object, end: bool) -> Optional[str]:
@@ -347,7 +379,7 @@ def parse_listing(html: str, region_id: int, code: str, current_skip: int = 0) -
             else None
         )
         difficulties = tuple(
-            badge.get_text(" ", strip=True)
+            (scale_from_title(badge["title"]), badge.get_text(" ", strip=True))
             for badge in item.find_all(attrs={"title": DIFFICULTY_BADGE})
             if badge.get_text(strip=True)
         )
@@ -413,11 +445,12 @@ class HikrDiscovery:
         bis: object = None,
         is_known: Optional[Callable[[str], bool]] = None,
         schwierigkeit: str | Sequence[str] | None = None,
+        tourtyp: Optional[str] = None,
     ) -> list[str]:
         """Kurzform von discover, liefert nur die URLs."""
         return self.discover(
             region, kategorie, max_results, von=von, bis=bis, is_known=is_known,
-            schwierigkeit=schwierigkeit,
+            schwierigkeit=schwierigkeit, tourtyp=tourtyp,
         ).urls
 
     def discover(
@@ -431,6 +464,7 @@ class HikrDiscovery:
         start_skip: int = 0,
         stop_at_known_page: bool = False,
         schwierigkeit: str | Sequence[str] | None = None,
+        tourtyp: Optional[str] = None,
     ) -> DiscoveryResult:
         """
         Blaettert durch die Liste und sammelt bis zu max_results URLs.
@@ -439,10 +473,11 @@ class HikrDiscovery:
         Bekannte URLs (is_known) werden uebersprungen und zaehlen nicht mit.
         Einträge ausserhalb des Datumsbereichs zaehlen ebenfalls nicht.
 
-        Mit schwierigkeit zaehlen nur Eintraege, deren Bewertung auf der
-        Listenseite einen der Begriffe enthaelt. Die uebrigen werden nie
-        angefragt. Der Datumsbereich endet trotzdem am ersten zu alten
-        Eintrag, egal welche Bewertung er traegt.
+        Mit schwierigkeit zaehlen nur Eintraege, die eine der Stufen auf
+        irgendeiner Skala tragen, exakt verglichen. Mit tourtyp zaehlen nur
+        Eintraege dieses Typs. Die uebrigen werden nie angefragt. Der
+        Datumsbereich endet trotzdem am ersten zu alten Eintrag, egal welche
+        Bewertung er traegt.
 
         Schluss ist, sobald genug URLs da sind, ein Eintrag aelter als von
         auftaucht, die Liste endet oder max_pages Seiten gelesen sind. Mit
@@ -455,6 +490,7 @@ class HikrDiscovery:
         code = resolve_category(kategorie)
         date_from, date_to = date_bounds(von, bis)
         terms = difficulty_terms(schwierigkeit)
+        validate_tour_type(tourtyp)
         if isinstance(start_skip, bool) or not isinstance(start_skip, int) or start_skip < 0:
             raise DiscoveryError(f"start_skip muss eine Zahl ab 0 sein, war {start_skip!r}")
 
@@ -491,6 +527,8 @@ class HikrDiscovery:
                         break
 
                 if terms and not matches_difficulty(entry, terms):
+                    continue
+                if tourtyp is not None and entry_tour_type(entry) != tourtyp:
                     continue
 
                 in_range += 1

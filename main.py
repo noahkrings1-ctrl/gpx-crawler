@@ -18,6 +18,7 @@ from crawler.discovery import (
     resolve_region,
     search_key,
     validate_max_results,
+    validate_tour_type,
 )
 from crawler.downloader import (
     CrawlBlockedError,
@@ -28,6 +29,7 @@ from crawler.downloader import (
 from crawler.politeness import MAX_CONSECUTIVE_FAILURES
 from parsers import GpxParser, HikrParser
 from parsers.gpx_parser import GpxParseError
+from parsers.grades import TOUR_TYPES, is_grade
 from storage import TourStore, TourStoreError
 from storage.tour_store import DEFAULT_DB_PATH, STATUS_FAILED, STATUS_STORED
 
@@ -62,7 +64,7 @@ REUSE_LOCAL_HTML = True
 
 # Optionen, die nur zusammen mit --discover einen Sinn ergeben.
 DISCOVERY_ONLY_OPTIONS = (
-    "region", "kategorie", "von", "bis", "max", "nur_urls", "schwierigkeit",
+    "region", "kategorie", "von", "bis", "max", "nur_urls", "schwierigkeit", "tourtyp",
 )
 
 
@@ -217,6 +219,7 @@ def discover_urls(
     bis: object = None,
     max_results: int = DEFAULT_MAX_RESULTS,
     schwierigkeit: str | Sequence[str] | None = None,
+    tourtyp: Optional[str] = None,
 ) -> list[str]:
     """
     Stellt die URLs fuer einen Discovery Lauf zusammen.
@@ -227,15 +230,17 @@ def discover_urls(
     eine Seite frueher als Ueberlappung. Ist die Suche schon vollstaendig,
     wird nur oben nach neuen Berichten gesehen.
 
-    Ein Filter auf die Schwierigkeit ist eine eigene Suche, mit eigenem
-    Suchstand und eigenen offenen URLs unter search_key, etwa ped:t4,t5,t6.
+    Ein Filter auf Schwierigkeit oder Tourtyp ist eine eigene Suche, mit
+    eigenem Suchstand und eigenen offenen URLs unter search_key, etwa
+    ped:t4,t5,t6 oder alp:ws,zs|ski-hochtour.
     """
     validate_max_results(max_results)
     region_id = resolve_region(region)
     code = resolve_category(kategorie)
     date_from, date_to = date_bounds(von, bis)
     terms = difficulty_terms(schwierigkeit)
-    key = search_key(code, terms)
+    tourtyp = validate_tour_type(tourtyp)
+    key = search_key(code, terms, tourtyp)
 
     pending = store.pending_urls(region_id, key, date_from, date_to, limit=max_results)
     remaining = max_results - len(pending)
@@ -260,6 +265,7 @@ def discover_urls(
         start_skip=start_skip,
         stop_at_known_page=completed_before,
         schwierigkeit=terms,
+        tourtyp=tourtyp,
     )
 
     store.add_discovered(
@@ -308,6 +314,15 @@ def print_summary(results: list[dict], failures: list[tuple[str, Exception]]) ->
         print(f"  fehlgeschlagen: {url} ({type(exc).__name__})")
 
 
+def parse_grade(value: str) -> str:
+    """Laesst nur echte Stufen zu, etwa T4, WS, ZS+ oder III."""
+    if not is_grade(value):
+        raise argparse.ArgumentTypeError(
+            f"{value!r} ist keine Schwierigkeitsstufe. Erlaubt sind etwa T4, WS, ZS+, S oder III"
+        )
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Ohne Optionen die feste Liste, mit --discover die Suche nach Kriterien."""
     parser = argparse.ArgumentParser(
@@ -325,6 +340,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  python main.py --discover --region 146 --kategorie ski --nur-urls\n"
             "  python main.py --discover --region 146 --kategorie wandern "
             "--von 2026 --bis 2026 --schwierigkeit T4 T5 T6\n"
+            "  python main.py --discover --region 146 --kategorie hochtouren "
+            "--von 2026 --bis 2026 --tourtyp ski-hochtour --schwierigkeit WS ZS\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -344,9 +361,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--schwierigkeit",
         nargs="+",
         action="extend",
+        type=parse_grade,
         metavar="STUFE",
-        help="Nur Eintraege mit dieser Bewertung laden, z.B. T4 T5 T6 fuer "
-        "Alpinwanderungen. Gelesen wird die Kurzform auf der Listenseite",
+        help="Nur Eintraege mit dieser Stufe laden, auf irgendeiner Skala, z.B. "
+        "T4 T5 T6 fuer Alpinwanderungen oder WS ZS. ZS trifft ZS-, ZS und ZS+",
+    )
+    parser.add_argument(
+        "--tourtyp",
+        choices=TOUR_TYPES,
+        help="Nur Touren mit Hochtourennote dieses Typs: ski-hochtour mit Skinote, "
+        "alpinwandern-hochtour mit T4 bis T6, hochtour ohne beides",
     )
     parser.add_argument(
         "--max",
@@ -408,6 +432,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         discovery, store, args.region, args.kategorie,
                         args.von, args.bis, max_results,
                         schwierigkeit=args.schwierigkeit,
+                        tourtyp=args.tourtyp,
                     )
                 except DiscoveryError as exc:
                     print(f"Discovery nicht moeglich: {exc}", file=sys.stderr)

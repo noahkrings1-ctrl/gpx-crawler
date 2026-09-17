@@ -4,7 +4,7 @@ import pytest
 import requests
 
 import main as main_module
-from crawler.discovery import DiscoveryResult, ListingEntry
+from crawler.discovery import DiscoveryError, DiscoveryResult, ListingEntry
 from crawler.downloader import CrawlBlockedError
 from storage import TourStore
 
@@ -159,12 +159,14 @@ class FakeDiscovery:
         self.calls: list[dict] = []
 
     def discover(self, region, kategorie, max_results, von=None, bis=None,
-                 is_known=None, start_skip=0, stop_at_known_page=False, schwierigkeit=None):
+                 is_known=None, start_skip=0, stop_at_known_page=False, schwierigkeit=None,
+                 tourtyp=None):
         self.calls.append(
             {
                 "region": region, "kategorie": kategorie, "max_results": max_results,
                 "von": von, "bis": bis, "start_skip": start_skip,
                 "stop_at_known_page": stop_at_known_page, "schwierigkeit": schwierigkeit,
+                "tourtyp": tourtyp,
             }
         )
         found = [entry for entry in self.entries if not (is_known and is_known(entry.url))]
@@ -259,6 +261,7 @@ def test_known_urls_are_never_returned_twice(store) -> None:
         ["--max", "0"],
         ["--nur-urls"],
         ["--schwierigkeit", "T4"],
+        ["--tourtyp", "hochtour"],
     ],
 )
 def test_discovery_options_are_rejected_without_discover(argv: list[str]) -> None:
@@ -439,3 +442,61 @@ def test_schwierigkeit_on_the_command_line_reaches_the_discovery(tmp_path, monke
 
     assert code == 0
     assert created[0].calls[0]["schwierigkeit"] == ["t4", "t5", "t6"]
+
+
+# --- Discovery mit Tourtyp -------------------------------------------------
+
+
+def test_tour_type_is_passed_on_and_part_of_the_search_key(store) -> None:
+    discovery = FakeDiscovery(entries(1, day="2026-08-01"), completed=True)
+
+    urls = main_module.discover_urls(
+        discovery, store, 146, "hochtouren", 2026, 2026, max_results=5,
+        schwierigkeit=["ZS", "WS"], tourtyp="ski-hochtour",
+    )
+
+    assert urls == [post(1)]
+    assert discovery.calls[0]["tourtyp"] == "ski-hochtour"
+    progress = store.get_progress(146, "alp:ws,zs|ski-hochtour", "2026-01-01", "2026-12-31")
+    assert progress["completed"] is True
+
+
+def test_unknown_tour_type_is_rejected_before_the_search(store) -> None:
+    discovery = FakeDiscovery(entries(1))
+
+    with pytest.raises(DiscoveryError):
+        main_module.discover_urls(discovery, store, 146, "hochtouren", tourtyp="gletscher")
+
+    assert discovery.calls == []
+
+
+@pytest.mark.parametrize("argv", [["--tourtyp", "gletscher"], ["--schwierigkeit", "alpinwandern"]])
+def test_invalid_tour_type_or_grade_on_the_command_line(tmp_path, argv) -> None:
+    with pytest.raises(SystemExit) as caught:
+        main_module.main(
+            ["--discover", "--region", "146", "--kategorie", "hochtouren", *argv,
+             "--datenbank", str(tmp_path / "tours.sqlite3")]
+        )
+
+    assert caught.value.code == 2
+
+
+def test_tourtyp_on_the_command_line_reaches_the_discovery(tmp_path, monkeypatch) -> None:
+    created: list[FakeDiscovery] = []
+
+    def make(downloader):
+        created.append(FakeDiscovery(entries(7, day="2026-06-01")))
+        return created[-1]
+
+    monkeypatch.setattr(main_module, "HikrDiscovery", make)
+    monkeypatch.setattr(main_module, "run_tours", lambda urls, **kwargs: ([], []))
+
+    code = main_module.main(
+        ["--discover", "--region", "146", "--kategorie", "hochtouren",
+         "--tourtyp", "alpinwandern-hochtour", "--schwierigkeit", "WS",
+         "--datenbank", str(tmp_path / "tours.sqlite3")]
+    )
+
+    assert code == 0
+    assert created[0].calls[0]["tourtyp"] == "alpinwandern-hochtour"
+    assert created[0].calls[0]["schwierigkeit"] == ["ws"]

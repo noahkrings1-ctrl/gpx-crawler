@@ -410,28 +410,39 @@ def test_listing_entries_carry_their_short_difficulties() -> None:
     ski = parse_listing(fixture("ski_seite_1.html"), 146, "ski", 0)
     alle = parse_listing(fixture("alle_seite_1.html"), 146, "tour", 0)
 
-    assert ski.entries[1].difficulties == ("WS", "ZS")
-    assert alle.entries[0].difficulties == ("T4-",)
-    assert alle.entries[1].difficulties == ("T6", "ZS", "IV")
-    assert alle.entries[2].difficulties == ("S",)
+    assert ski.entries[1].difficulties == (("hochtouren", "WS"), ("ski", "ZS"))
+    assert alle.entries[0].difficulties == (("wandern", "T4-"),)
+    assert alle.entries[1].difficulties == (
+        ("wandern", "T6"), ("hochtouren", "ZS"), ("klettern", "IV"),
+    )
+    assert alle.entries[2].difficulties == (("mountainbike", "S"),)
 
 
 def test_difficulty_terms_are_cleaned_and_sorted() -> None:
     assert difficulty_terms(["T5", "t4", " ", "T4"]) == ["t4", "t5"]
     assert difficulty_terms("T4") == ["t4"]
     assert difficulty_terms(None) == []
+    with pytest.raises(DiscoveryError, match="keine Schwierigkeitsstufe"):
+        difficulty_terms(["alpinwandern"])
 
 
 def test_a_difficulty_filter_is_its_own_search() -> None:
     assert search_key("ped", ["t4", "t5", "t6"]) == "ped:t4,t5,t6"
     assert search_key("ped", []) == "ped"
+    assert search_key("alp", ["ws", "zs"], "ski-hochtour") == "alp:ws,zs|ski-hochtour"
+    assert search_key("alp", [], "hochtour") == "alp|hochtour"
 
 
-def test_difficulty_matches_as_partial_grade() -> None:
-    entry = ListingEntry(post(1), "2026-08-26", ("T4-",))
+def test_difficulty_matches_the_grade_family_on_any_scale() -> None:
+    hike = ListingEntry(post(1), "2026-08-26", (("wandern", "T4-"),))
+    ski = ListingEntry(post(3), "2026-03-01", (("hochtouren", "WS"), ("ski", "ZS")))
+    bike = ListingEntry(post(4), "2026-07-01", (("mountainbike", "S"),))
 
-    assert matches_difficulty(entry, ["t4"])
-    assert not matches_difficulty(entry, ["t5", "t6"])
+    assert matches_difficulty(hike, ["t4"])
+    assert not matches_difficulty(hike, ["t5", "t6"])
+    assert matches_difficulty(ski, ["zs"])
+    assert not matches_difficulty(ski, ["s"])
+    assert not matches_difficulty(bike, ["s"])
     assert not matches_difficulty(ListingEntry(post(2), None), ["t4"])
 
 
@@ -471,3 +482,75 @@ def test_known_page_check_counts_only_matching_entries(ski_pages) -> None:
     assert result.urls == []
     assert result.completed is True
     assert ski_pages.requested == [SKI]
+
+
+# --- Tourtyp ---------------------------------------------------------------
+
+ALP = "https://www.hikr.org/region146/alp/"
+
+
+def listing(*entries: tuple[int, str, list[tuple[str, str]]]) -> str:
+    """Kleine Listenseite im Aufbau von Hikr, ohne Blaetterblock."""
+    items = []
+    for number, day, badges in entries:
+        spans = "".join(
+            f'<td><span title="{scale} Schwierigkeit">{value}</span></td>' for scale, value in badges
+        )
+        items.append(
+            '<div class="content-list"><table><tr>'
+            f'{spans}<td><div title="Tour Datum">{day}</div></td>'
+            f'</tr></table><strong><a href="{post(number)}">Tour {number}</a></strong></div>'
+        )
+    return "<html><body>" + "".join(items) + "</body></html>"
+
+
+@pytest.fixture
+def alpine_page() -> FakeDownloader:
+    return FakeDownloader(
+        {
+            ALP: listing(
+                (1, "20 Aug 26", [("Hochtouren", "WS"), ("Ski", "ZS")]),
+                (2, "18 Aug 26", [("Wandern", "T5"), ("Hochtouren", "WS")]),
+                (3, "16 Aug 26", [("Hochtouren", "ZS")]),
+                (4, "14 Aug 26", [("Wandern", "T3"), ("Hochtouren", "L")]),
+                (5, "12 Aug 26", [("Wandern", "T5"), ("Hochtouren", "ZS"), ("Ski", "S")]),
+                (6, "10 Aug 26", [("Ski", "WS")]),
+            )
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "tourtyp, expected",
+    [("ski-hochtour", [1, 5]), ("alpinwandern-hochtour", [2]), ("hochtour", [3, 4])],
+)
+def test_tour_types_are_told_apart_on_the_listing(alpine_page, tourtyp, expected) -> None:
+    urls = HikrDiscovery(alpine_page).find_urls(146, "hochtouren", max_results=10, tourtyp=tourtyp)
+
+    assert urls == [post(n) for n in expected]
+    assert alpine_page.requested == [ALP]
+
+
+def test_tour_type_and_grade_combine_across_scales(alpine_page) -> None:
+    """ZS trifft die Skinote von Tour 1 und die Hochtourennote von Tour 5."""
+    urls = HikrDiscovery(alpine_page).find_urls(
+        146, "hochtouren", max_results=10, tourtyp="ski-hochtour", schwierigkeit=["ZS"]
+    )
+
+    assert urls == [post(1), post(5)]
+
+
+def test_a_single_s_matches_only_s(alpine_page) -> None:
+    urls = HikrDiscovery(alpine_page).find_urls(146, "hochtouren", max_results=10, schwierigkeit="S")
+
+    assert urls == [post(5)]
+
+
+@pytest.mark.parametrize(
+    "criteria", [{"tourtyp": "skihochtour"}, {"schwierigkeit": ["alpinwandern"]}]
+)
+def test_unknown_tour_type_or_grade_is_rejected_before_any_request(alpine_page, criteria) -> None:
+    with pytest.raises(DiscoveryError):
+        HikrDiscovery(alpine_page).discover(146, "hochtouren", **criteria)
+
+    assert alpine_page.requested == []

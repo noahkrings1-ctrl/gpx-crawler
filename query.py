@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional, Sequence
 
+from parsers.grades import TOUR_TYPES, is_grade
 from storage import TourStore, TourStoreError
 from storage.tour_store import DEFAULT_DB_PATH, SORTABLE_COLUMNS
 
@@ -43,6 +44,15 @@ def parse_duration(value: str) -> int:
     raise argparse.ArgumentTypeError(
         f"{value!r} ist keine Dauer. Erlaubt sind Minuten wie 330 oder Stunden wie 5:30"
     )
+
+
+def parse_grade(value: str) -> str:
+    """Laesst nur echte Stufen zu, etwa T4, WS, ZS+ oder III."""
+    if not is_grade(value):
+        raise argparse.ArgumentTypeError(
+            f"{value!r} ist keine Schwierigkeitsstufe. Erlaubt sind etwa T4, WS, ZS+, S oder III"
+        )
+    return value
 
 
 def _date_bound(value: str, end: bool) -> str:
@@ -168,6 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python query.py --max-aufstieg 1500 --max-dauer 5:30\n"
             "  python query.py --sportart Wandern --schwierigkeit T4 T5\n"
             "  python query.py --sportart Skitour --von 2020 --bis 2025\n"
+            "  python query.py --region Uri --tourtyp ski-hochtour --schwierigkeit ZS\n"
             "  python query.py --text biwak\n"
             "  python query.py --sortierung distance_km --absteigend --limit 5\n"
         ),
@@ -186,9 +197,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--schwierigkeit",
         nargs="+",
         action="extend",
+        type=parse_grade,
         metavar="STUFE",
-        help="Eine oder mehrere Bewertungen, z.B. T4 T5 oder ZS. Mehrere "
-        "Werte gelten als oder. Sucht in allen Skalen",
+        help="Eine oder mehrere Stufen, z.B. T4 T5 oder ZS. Verglichen wird die "
+        "Stufe auf jeder Skala: ZS trifft ZS-, ZS und ZS+, aber nicht WS. "
+        "Mehrere Werte gelten als oder",
+    )
+    parser.add_argument(
+        "--tourtyp",
+        choices=TOUR_TYPES,
+        help="Touren mit Hochtourennote: ski-hochtour mit Skinote, "
+        "alpinwandern-hochtour mit T4 bis T6, hochtour ohne beides",
     )
     parser.add_argument(
         "--min-aufstieg", type=int, metavar="METER", help="Aufstieg mindestens"
@@ -254,6 +273,7 @@ def search(store: TourStore, args: argparse.Namespace) -> list[dict]:
         date_from=args.von,
         date_to=args.bis,
         text=args.text,
+        tour_type=args.tourtyp,
         order_by=args.sortierung,
         descending=args.absteigend,
         limit=args.limit,

@@ -157,3 +157,56 @@ def test_completed_search_stays_completed(store) -> None:
 
     assert progress["completed"] is True
     assert progress["resume_skip"] == 0
+
+
+# --- Exakte Stufen und Tourtypen -------------------------------------------
+
+
+@pytest.fixture
+def alpine_store(store):
+    store.upsert_tour(tour(source_url="https://x/ski.html", title="Ski und Hochtour",
+                           sport="Skitour", difficulty_alpine="WS", difficulty_ski="ZS"))
+    store.upsert_tour(tour(source_url="https://x/alpin.html", title="Alpinwandern und Hochtour",
+                           sport="Hochtour", difficulty_hiking="T5- - anspruchsvolles Alpinwandern",
+                           difficulty_alpine="WS"))
+    store.upsert_tour(tour(source_url="https://x/hoch.html", title="Reine Hochtour",
+                           sport="Hochtour", difficulty_hiking="T3 - anspruchsvolles Bergwandern",
+                           difficulty_alpine="S"))
+    store.upsert_tour(tour(source_url="https://x/klettern.html", title="Kletterei",
+                           sport="Klettern", difficulty_climbing="III (UIAA-Skala)"))
+    store.upsert_tour(tour(source_url="https://x/wandern.html", title="Wanderung",
+                           sport="Wandern", difficulty_hiking="T4 - Alpinwandern"))
+    return store
+
+
+@pytest.mark.parametrize(
+    "tour_type, expected",
+    [
+        ("ski-hochtour", {"Ski und Hochtour"}),
+        ("alpinwandern-hochtour", {"Alpinwandern und Hochtour"}),
+        ("hochtour", {"Reine Hochtour"}),
+    ],
+)
+def test_tour_type_filter(alpine_store, tour_type, expected) -> None:
+    assert titles(alpine_store.find_tours(tour_type=tour_type)) == expected
+
+
+def test_grade_is_compared_exactly_not_as_text(alpine_store) -> None:
+    assert titles(alpine_store.find_tours(difficulty="S")) == {"Reine Hochtour"}
+    assert titles(alpine_store.find_tours(difficulty="II")) == set()
+    assert titles(alpine_store.find_tours(difficulty="III")) == {"Kletterei"}
+    assert titles(alpine_store.find_tours(difficulty="T5")) == {"Alpinwandern und Hochtour"}
+
+
+def test_grade_matches_on_any_scale_and_combines_with_tour_type(alpine_store) -> None:
+    assert titles(alpine_store.find_tours(difficulty="ZS")) == {"Ski und Hochtour"}
+    assert titles(alpine_store.find_tours(difficulty="WS", tour_type="alpinwandern-hochtour")) == {
+        "Alpinwandern und Hochtour"
+    }
+
+
+def test_unknown_tour_type_or_grade_is_rejected(alpine_store) -> None:
+    with pytest.raises(TourStoreError, match="Tourtyp"):
+        alpine_store.find_tours(tour_type="gletscher")
+    with pytest.raises(TourStoreError, match="keine Schwierigkeitsstufe"):
+        alpine_store.find_tours(difficulty="alpinwandern")

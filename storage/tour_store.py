@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
+from parsers.grades import TOUR_TYPES, grade_matches, grade_terms
+from parsers.grades import tour_type as classify_tour_type
+
 
 DEFAULT_DB_PATH = Path("data/tours.sqlite3")
 
@@ -170,6 +173,11 @@ def normalise(text: Optional[str]) -> str:
     return re.sub(r"\s+", " ", lowered).strip()
 
 
+def _sql_grade_match(value: Optional[str], term: str) -> int:
+    """grade_matches fuer SQLite, das keine Wahrheitswerte kennt."""
+    return int(grade_matches(value, term))
+
+
 class TourStoreError(Exception):
     """Raised when the tour store cannot be opened, read or written."""
 
@@ -221,6 +229,13 @@ class TourStore:
         # Ein Index greift dann zwar nicht mehr, bei dieser Datenmenge
         # ist das ohne Belang und ein treffender Filter wiegt schwerer.
         self.connection.create_function("normalise", 1, normalise)
+        # Stufen und Tourtypen nach denselben Regeln wie die Discovery.
+        self.connection.create_function(
+            "grade_match", 2, _sql_grade_match, deterministic=True
+        )
+        self.connection.create_function(
+            "tour_type", 3, classify_tour_type, deterministic=True
+        )
         return self.connection
 
     def close(self) -> None:
@@ -281,23 +296,17 @@ class TourStore:
     @staticmethod
     def _difficulty_terms(difficulty: str | Sequence[str] | None) -> list[str]:
         """
-        Macht aus einem Begriff oder einer Liste eine bereinigte Liste.
+        Bereinigte Stufen fuer den Filter, siehe parsers.grades.grade_terms.
 
-        Ein String ist in Python selbst eine Folge von Zeichen. Ohne die
-        Pruefung vorab wuerde aus "T4" die Suche nach "t" oder "4", und "t"
-        steckt in fast jeder Bewertung.
-
-        Leere Begriffe fallen heraus. normalise macht aus ihnen einen leeren
-        Text, und LIKE '%%' trifft jede Tour. In einer Liste mit oder wuerde
-        ein einziger leerer Begriff den ganzen Filter aushebeln. Doppelte
-        Begriffe fallen ebenfalls weg, sie aendern das Ergebnis nicht.
+        Ein String wird nicht Zeichen fuer Zeichen gelesen, leere und doppelte
+        Begriffe fallen weg. Ein leerer Begriff haette in einer Liste mit oder
+        sonst den ganzen Filter ausgehebelt. Was keine Stufe ist, wird
+        abgelehnt, statt still nichts zu finden.
         """
-        if difficulty is None:
-            return []
-        if isinstance(difficulty, str):
-            difficulty = [difficulty]
-        terms = (normalise(term) for term in difficulty)
-        return list(dict.fromkeys(term for term in terms if term))
+        try:
+            return grade_terms(difficulty)
+        except ValueError as exc:
+            raise TourStoreError(str(exc)) from exc
 
     def find_tours(
         self,
@@ -310,6 +319,7 @@ class TourStore:
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
         text: Optional[str] = None,
+        tour_type: Optional[str] = None,
         order_by: str = "date_iso",
         descending: bool = False,
         limit: Optional[int] = None,
@@ -318,14 +328,16 @@ class TourStore:
         Sucht Touren. Jeder nicht gesetzte Filter bedeutet keine
         Einschraenkung, ohne jeden Filter kommt die ganze Tabelle zurueck.
 
-        region und difficulty pruefen mehrere Spalten mit OR, damit der
-        Aufrufer nicht wissen muss, auf welcher Stufe sein Begriff liegt.
-        Beide vergleichen als Teilzeichenkette, "T4" trifft also auch
-        "T4 - Alpinwandern" und "Schweiz" trifft ueber das Land.
+        region prueft alle Regionsstufen mit OR und vergleicht als
+        Teilzeichenkette, "Schweiz" trifft also ueber das Land.
 
-        difficulty nimmt einen Begriff oder eine Liste. Mehrere Begriffe
-        gelten untereinander als oder, T4 und T5 findet also beides. Mit
-        den uebrigen Filtern bleibt es bei und.
+        difficulty prueft alle vier Skalen, vergleicht die Stufe aber exakt:
+        "T4" trifft "T4 - Alpinwandern" und "T4-", "ZS" trifft ZS-, ZS und
+        ZS+, aber nicht WS, "II" nicht III. Mehrere Stufen gelten
+        untereinander als oder, mit den uebrigen Filtern bleibt es bei und.
+
+        tour_type waehlt Touren mit Hochtourennote nach der Kombination der
+        Skalen: ski-hochtour, alpinwandern-hochtour oder hochtour.
 
         date_from und date_to sind ISO Daten und schliessen die Grenzen ein.
         Touren ohne Datum fallen bei einem Datumsfilter heraus.
@@ -358,13 +370,13 @@ class TourStore:
             # ebenfalls mit oder. Nach aussen bleibt das eine Bedingung, die
             # mit den uebrigen Filtern ueber und verknuepft wird.
             per_term = " OR ".join(
-                f"normalise({column}) LIKE ?" for column in DIFFICULTY_COLUMNS
+                f"grade_match({column}, ?)" for column in DIFFICULTY_COLUMNS
             )
             conditions.append(
                 "(" + " OR ".join(f"({per_term})" for _ in difficulty_terms) + ")"
             )
             for term in difficulty_terms:
-                parameters.extend([f"%{term}%"] * len(DIFFICULTY_COLUMNS))
+                parameters.extend([term] * len(DIFFICULTY_COLUMNS))
 
         if min_elevation_gain is not None:
             conditions.append("elevation_gain_m >= ?")
@@ -390,6 +402,16 @@ class TourStore:
         if text_term:
             conditions.append("(normalise(main_text) LIKE ? OR normalise(title) LIKE ?)")
             parameters.extend([f"%{text_term}%"] * 2)
+
+        if tour_type is not None:
+            if tour_type not in TOUR_TYPES:
+                raise TourStoreError(
+                    f"Unbekannter Tourtyp {tour_type!r}, erlaubt sind {', '.join(TOUR_TYPES)}"
+                )
+            conditions.append(
+                "tour_type(difficulty_hiking, difficulty_alpine, difficulty_ski) = ?"
+            )
+            parameters.append(tour_type)
 
         if order_by not in SORTABLE_COLUMNS:
             raise TourStoreError(

@@ -123,3 +123,31 @@ def test_ski_scale_is_shown_before_the_others() -> None:
     row = {"difficulty_ski": "WS+", "difficulty_alpine": "ZS", "difficulty_hiking": "T2"}
 
     assert query.format_difficulty(row) == "WS+"
+
+
+# --- Tourtyp und exakte Stufe ------------------------------------------------
+
+
+def test_tourtyp_and_exact_grade_on_the_command_line(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "tours.sqlite3"
+    with TourStore(target) as store:
+        store.upsert_tour(tour(source_url="https://x/ski.html", title="Ski und Hochtour",
+                               sport="Skitour", difficulty_alpine="WS", difficulty_ski="ZS"))
+        store.upsert_tour(tour(source_url="https://x/alpin.html", title="Alpinwandern und Hochtour",
+                               sport="Hochtour", difficulty_hiking="T5 - anspruchsvolles Alpinwandern",
+                               difficulty_alpine="ZS"))
+
+    code = query.main(["--datenbank", str(target), "--tourtyp", "ski-hochtour", "--schwierigkeit", "ZS"])
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "Ski und Hochtour" in output
+    assert "Alpinwandern und Hochtour" not in output
+    assert "1 Tour gefunden." in output
+
+
+def test_parser_rejects_unknown_tour_type_and_non_grades() -> None:
+    with pytest.raises(SystemExit):
+        query.build_parser().parse_args(["--tourtyp", "gletscher"])
+    with pytest.raises(SystemExit):
+        query.build_parser().parse_args(["--schwierigkeit", "alpinwandern"])
