@@ -81,6 +81,11 @@ jedem Lauf veralten.
   alpinwandern-hochtour (mit T4 bis T6, ohne Skinote), hochtour (weder noch)
 - GpxParser berechnet die Distanz horizontal in Kilometern mit gpxpy. Routen
   ohne Track werden mitgezaehlt, ohne verwertbare Punkte gibt es None statt 0.0
+- Aeltere Swisstopo App Dateien schreiben xmlns:schemaLocation statt
+  xsi:schemaLocation, lxml lehnt das mit einem ValueError ab. GpxParser
+  repariert das im Speicher, die Datei bleibt unveraendert. Jeder andere
+  Lesefehler wird zu GpxParseError, eine einzelne GPX Datei bricht nie den
+  Lauf ab
 
 ### Ablage
 - TourStore in storage/tour_store.py, Datei data/tours.sqlite3

@@ -49,6 +49,8 @@ Parser
 - Region zerlegt in Land, Hauptregion und Gebiet
 - Sportart abgeleitet aus der Schwierigkeitsskala
 - Distanz aus der GPX Datei mit gpxpy
+- GPX Dateien aelterer Swisstopo App Versionen werden trotz eines Fehlers im
+  Dateikopf gelesen
 
 Ablage und Suche
 
