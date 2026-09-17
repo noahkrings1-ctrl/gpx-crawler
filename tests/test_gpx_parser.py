@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import gpxpy
 import pytest
 
 from parsers.gpx_parser import GpxParseError, GpxParser
@@ -107,3 +108,53 @@ def test_latin1_encoded_file_is_read_correctly(tmp_path: Path) -> None:
 def test_missing_file_raises_file_not_found(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         GpxParser().parse_local_gpx(tmp_path / "gibtesnicht.gpx")
+
+
+# --- Fehlerhafte Dateikoepfe ------------------------------------------------
+
+# Nachbau des Dateikopfs aelterer Swisstopo App Versionen: xmlns:schemaLocation
+# statt xsi:schemaLocation, mit vier Adressen in einer Namensraum Deklaration.
+SWISSTOPO_HEADER = (
+    '<gpx version="1.1" creator="Nachbau einer aelteren Swisstopo App Datei" '
+    'xmlns="http://www.topografix.com/GPX/1/1" '
+    'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+    'xmlns:swisstopo="https://prod-static.swisstopo-app.ch/xmlschemas/SwisstopoExtensions" '
+    'xmlns:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd '
+    'https://swisstopo-app.ch/xmlschemas/SwisstopoExtensions '
+    'https://prod-static.swisstopo-app.ch/xmlschemas/SwisstopoExtensions.xsd">'
+)
+
+SWISSTOPO_GPX = TRACK_GPX.replace(GPX_OPEN, SWISSTOPO_HEADER)
+
+UNREPAIRABLE_GPX = TRACK_GPX.replace(
+    GPX_OPEN,
+    '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1" '
+    'xmlns:kaputt="eine adresse mit leerzeichen">',
+)
+
+
+def test_misdeclared_schema_location_trips_gpxpy() -> None:
+    """Voraussetzung der Reparatur: gpxpy wirft hier einen ValueError aus lxml."""
+    assert SWISSTOPO_HEADER in SWISSTOPO_GPX
+
+    with pytest.raises(ValueError, match="Invalid namespace URI"):
+        gpxpy.parse(SWISSTOPO_GPX)
+
+
+def test_swisstopo_file_with_misdeclared_schema_location_is_repaired(tmp_path: Path) -> None:
+    path = write_gpx(tmp_path, SWISSTOPO_GPX)
+    before = path.read_bytes()
+
+    result = GpxParser().parse_local_gpx(path)
+
+    assert result["distance_km"] == pytest.approx(1.11, abs=0.01)
+    assert result["point_count"] == 2
+    assert path.read_bytes() == before
+
+
+def test_any_other_read_error_becomes_gpx_parse_error(tmp_path: Path) -> None:
+    """Frueher brach ein ValueError aus lxml den ganzen Lauf ab."""
+    assert "xmlns:kaputt" in UNREPAIRABLE_GPX
+
+    with pytest.raises(GpxParseError, match="Cannot parse GPX file"):
+        GpxParser().parse_local_gpx(write_gpx(tmp_path, UNREPAIRABLE_GPX))

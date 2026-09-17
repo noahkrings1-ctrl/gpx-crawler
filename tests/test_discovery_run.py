@@ -500,3 +500,48 @@ def test_tourtyp_on_the_command_line_reaches_the_discovery(tmp_path, monkeypatch
     assert code == 0
     assert created[0].calls[0]["tourtyp"] == "alpinwandern-hochtour"
     assert created[0].calls[0]["schwierigkeit"] == ["ws"]
+
+
+# --- GPX Dateien mit fehlerhaftem Kopf ----------------------------------------
+
+GPX_OPEN_TAG = '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">'
+
+SWISSTOPO_GPX = GPX_BYTES.decode("utf-8").replace(
+    GPX_OPEN_TAG,
+    '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1" '
+    'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+    'xmlns:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">',
+)
+
+UNREPAIRABLE_GPX = GPX_BYTES.decode("utf-8").replace(
+    GPX_OPEN_TAG,
+    '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1" '
+    'xmlns:kaputt="eine adresse mit leerzeichen">',
+)
+
+
+def test_gpx_with_misdeclared_schema_location_still_gives_a_distance(tmp_path, hikr, store) -> None:
+    assert "xmlns:schemaLocation" in SWISSTOPO_GPX
+    hikr["pages"][post(1)] = HTML
+    hikr["pages"][GPX_URL] = SWISSTOPO_GPX
+
+    results, failures = run(tmp_path, [post(1)], store)
+
+    assert failures == []
+    assert results[0]["distance"] == pytest.approx(1.11, abs=0.01)
+    assert store.get_by_url(post(1))["distance_km"] == pytest.approx(1.11, abs=0.01)
+
+
+def test_unreadable_gpx_header_does_not_stop_the_run(tmp_path, hikr, store) -> None:
+    """Frueher brach ein ValueError aus lxml den ganzen Lauf ab, samt allen URLs dahinter."""
+    assert "xmlns:kaputt" in UNREPAIRABLE_GPX
+    hikr["pages"][post(1)] = HTML
+    hikr["pages"][GPX_URL] = UNREPAIRABLE_GPX
+    hikr["pages"][post(2)] = HTML_WITHOUT_GPX
+
+    results, failures = run(tmp_path, [post(1), post(2)], store)
+
+    assert failures == []
+    assert [entry["source_url"] for entry in results] == [post(1), post(2)]
+    assert results[0]["gpx_path"] is None
+    assert store.url_status(post(1)) == "gespeichert"

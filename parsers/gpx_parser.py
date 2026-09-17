@@ -5,6 +5,13 @@ import gpxpy
 import gpxpy.gpx
 
 
+# Aeltere Versionen der Swisstopo App schreiben die Schema Angabe mit dem
+# falschen Praefix. Aus xsi:schemaLocation wird so eine Namensraum
+# Deklaration mit vier Adressen, die lxml als ungueltig ablehnt.
+MISDECLARED_SCHEMA_LOCATION = b" xmlns:schemaLocation="
+SCHEMA_LOCATION = b" xsi:schemaLocation="
+
+
 class GpxParseError(Exception):
     """Raised when a GPX file cannot be read."""
 
@@ -29,14 +36,33 @@ class GpxParser:
         Laedt die Datei als Bytes, nicht als Text. Damit bleibt die
         Encoding Deklaration im XML Kopf massgeblich, auch wenn eine Datei
         nicht in UTF-8 vorliegt.
+
+        Jeder Lesefehler wird zu GpxParseError. gpxpy wirft bei einer
+        ungueltigen Namensraum Deklaration einen ValueError aus lxml statt
+        eines eigenen Fehlers. Ohne diesen Fang brach eine einzige solche
+        Datei den ganzen Lauf ab.
         """
         gpx_path = Path(gpx_path)
         raw = gpx_path.read_bytes()
 
         try:
-            return gpxpy.parse(raw)
-        except gpxpy.gpx.GPXException as exc:
+            return self._parse(raw)
+        except (gpxpy.gpx.GPXException, ValueError) as exc:
             raise GpxParseError(f"Cannot parse GPX file {gpx_path}: {exc}") from exc
+
+    @staticmethod
+    def _parse(raw: bytes) -> gpxpy.gpx.GPX:
+        """
+        Liest die Datei und repariert dabei einen bekannten Fehler aelterer
+        Swisstopo App Dateien. Repariert wird nur im Speicher und nur, wenn
+        gpxpy genau daran scheitert. Die Datei auf der Platte bleibt unveraendert.
+        """
+        try:
+            return gpxpy.parse(raw)
+        except ValueError:
+            if MISDECLARED_SCHEMA_LOCATION not in raw[:4096]:
+                raise
+            return gpxpy.parse(raw.replace(MISDECLARED_SCHEMA_LOCATION, SCHEMA_LOCATION, 1))
 
     def _distance_km(self, gpx: gpxpy.gpx.GPX) -> Optional[float]:
         """
