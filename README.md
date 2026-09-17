@@ -108,6 +108,7 @@ Vier Entscheidungen, die den Aufbau tragen:
     python main.py --discover --region 146 --kategorie skitouren --max 20
     python main.py --discover --region Uri --kategorie skitouren --von 2020 --bis 2026 --max 90
     python main.py --discover --region 146 --kategorie ski --nur-urls
+    python main.py --discover --region 146 --kategorie wandern --von 2026 --bis 2026 --schwierigkeit T4 T5 T6
 
 Ohne `--discover` arbeitet `main.py` ausschliesslich die feste Liste
 TOUR_URLS ab. Die Discovery startet nie von selbst.
@@ -117,6 +118,7 @@ TOUR_URLS ab. Die Discovery startet nie von selbst.
 | `--region` | ID aus der URL der Regionsseite, etwa 146 aus region146.html fuer Uri, oder ein hinterlegter Name wie Uri, Graubünden, Schweiz |
 | `--kategorie` | alle, wandern, hochtouren, klettern, skitouren, schneeschuhe, klettersteig, eisklettern, oder der Hikr Code wie ski |
 | `--von`, `--bis` | Tourdatum als Jahr oder Datum, beide Grenzen eingeschlossen |
+| `--schwierigkeit` | nur Eintraege mit dieser Bewertung, z.B. T4 T5 T6 fuer Alpinwanderungen. Mehrere Werte gelten als oder, verglichen wird als Teiltext |
 | `--max` | neue Touren je Lauf, Standard 20, hoechstens 100 |
 | `--nur-urls` | gefundene URLs nur anzeigen und vormerken, keine Tour laden |
 
@@ -133,6 +135,9 @@ So arbeitet sie:
   weiterer Lauf nur oben nach neuen Berichten.
 - Gefundene URLs landen sofort mit Status neu in der Datenbank. Mit
   `--nur-urls` bleiben sie dort, der naechste Lauf laedt sie zuerst.
+- Ein Filter auf die Schwierigkeit wird schon auf der Listenseite geprueft,
+  sie zeigt jede Bewertung in Kurzform, etwa T4-. Nicht passende Touren
+  werden nie angefragt. Der Filter ist eine eigene Suche mit eigenem Stand.
 
 Doppeltes Crawlen ist ausgeschlossen:
 

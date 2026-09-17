@@ -29,6 +29,12 @@ jedem Lauf veralten.
   und Kategorie
 - Strukturwaechter: Blaetterblock ohne Eintraege oder nicht absteigende Daten
   bei Datumsfilter ergeben einen DiscoveryError
+- --schwierigkeit filtert schon auf der Listenseite ueber die Kurzform der
+  Bewertung, etwa T4-, als Teiltext wie in query.py. Nicht passende Touren
+  werden nie angefragt. Der Filter ist eine eigene Suche: Suchstand und
+  offene URLs laufen unter search_key, etwa ped:t4,t5,t6 statt ped. Der
+  Datumsbereich endet trotzdem am ersten zu alten Eintrag, egal welche
+  Bewertung er traegt
 - main.py fuehrt den Lauf: zuerst offene URLs frueherer Laeufe, fuer den Rest
   Discovery ab gespeichertem Stand minus eine Seite. Vollstaendige Bereiche
   werden nur oben nach neuen Berichten abgesucht (stop_at_known_page)
