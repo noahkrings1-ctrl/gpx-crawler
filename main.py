@@ -31,7 +31,12 @@ from parsers import GpxParser, HikrParser
 from parsers.gpx_parser import GpxParseError
 from parsers.grades import TOUR_TYPES, is_grade
 from storage import TourStore, TourStoreError
-from storage.tour_store import DEFAULT_DB_PATH, STATUS_FAILED, STATUS_STORED
+from storage.tour_store import (
+    DEFAULT_DB_PATH,
+    STATUS_FAILED,
+    STATUS_NO_GPX,
+    STATUS_STORED,
+)
 
 
 # Echte Hikr Touren, bewusst mit Bandbreite ausgewaehlt: Wandern bis Hochtour,
@@ -139,6 +144,7 @@ def run_tours(
     delay: float = REQUEST_DELAY_SECONDS,
     database: TourStore | None = None,
     downloader: Downloader | None = None,
+    require_gpx: bool = False,
 ) -> tuple[list[dict], list[tuple[str, Exception]]]:
     """
     Arbeitet die Liste ab und liefert Ergebnisse und Fehlschlaege getrennt.
@@ -147,6 +153,11 @@ def run_tours(
     Mit einer Ablage gilt: Gespeicherte und dauerhaft fehlgeschlagene URLs
     werden uebersprungen, ohne eine einzige Anfrage. Verweigert Hikr den
     Zugriff oder scheitern mehrere Touren in Folge, endet der ganze Lauf.
+
+    Mit require_gpx wird eine Tour ohne GPX Datei nicht abgelegt. Ob eine
+    Tour eine hat, steht erst auf der Tourseite, angefragt wird sie also
+    trotzdem. Ihre URL wird vermerkt, damit kein spaeterer Lauf sie erneut
+    holt.
     """
     html_dir, gpx_dir = Path(html_dir), Path(gpx_dir)
     html_dir.mkdir(parents=True, exist_ok=True)
@@ -159,6 +170,7 @@ def run_tours(
     results: list[dict] = []
     failures: list[tuple[str, Exception]] = []
     consecutive_failures = 0
+    without_gpx = 0
 
     for index, url in enumerate(urls, start=1):
         print(f"[{index}/{len(urls)}] {url}")
@@ -173,12 +185,21 @@ def run_tours(
             metadata = process_tour(
                 url, downloader, hikr_parser, gpx_parser, html_dir, gpx_dir
             )
-            # Direkt ablegen, damit ein Abbruch mitten im Lauf die bereits
-            # gelesenen Touren nicht verwirft.
-            if database is not None:
-                database.upsert_tour(metadata)
-                database.record_url_status(url, STATUS_STORED)
-            results.append(metadata)
+            if require_gpx and metadata["gpx_path"] is None:
+                # Kein Fehlschlag, die Tour ist nur nicht die gesuchte Art.
+                # Der Vermerk verhindert, dass ein spaeterer Lauf sie erneut
+                # anfragt.
+                print("    ohne GPX Datei, nicht gespeichert")
+                without_gpx += 1
+                if database is not None:
+                    database.record_url_status(url, STATUS_NO_GPX)
+            else:
+                # Direkt ablegen, damit ein Abbruch mitten im Lauf die bereits
+                # gelesenen Touren nicht verwirft.
+                if database is not None:
+                    database.upsert_tour(metadata)
+                    database.record_url_status(url, STATUS_STORED)
+                results.append(metadata)
             consecutive_failures = 0
         except CrawlBlockedError as exc:
             # Die Gegenseite will, dass wir aufhoeren. Die restlichen URLs
@@ -206,6 +227,9 @@ def run_tours(
 
         if index < len(urls) and delay:
             time.sleep(delay)
+
+    if without_gpx:
+        print(f"{without_gpx} Touren ohne GPX Datei, nicht gespeichert")
 
     return results, failures
 
@@ -342,6 +366,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--von 2026 --bis 2026 --schwierigkeit T4 T5 T6\n"
             "  python main.py --discover --region 146 --kategorie hochtouren "
             "--von 2026 --bis 2026 --tourtyp ski-hochtour --schwierigkeit WS ZS\n"
+            "  python main.py --discover --region 3 --kategorie wandern --nur-mit-gpx\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -383,6 +408,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--nur-urls",
         action="store_true",
         help="Nur die gefundenen URLs anzeigen und fuer spaeter vormerken, keine Tour laden",
+    )
+    parser.add_argument(
+        "--nur-mit-gpx",
+        action="store_true",
+        help="Nur Touren mit GPX Datei ablegen. Touren ohne werden vermerkt und nie erneut angefragt",
     )
     parser.add_argument(
         "--datenbank",
@@ -461,6 +491,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 delay=0,
                 database=store,
                 downloader=downloader,
+                require_gpx=args.nur_mit_gpx,
             )
             print_summary(results, failures)
             print(f"Datenbank {store.db_path}: {store.count()} Touren abgelegt")

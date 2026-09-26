@@ -11,11 +11,14 @@ from parsers.grades import tour_type as classify_tour_type
 
 DEFAULT_DB_PATH = Path("data/tours.sqlite3")
 
-# Status einer bekannten URL. neu heisst gefunden, aber noch nicht geladen.
+# Status einer bekannten URL. neu heisst gefunden, aber noch nicht
+# geladen. ohne_gpx heisst gelesen, aber ohne GPX Datei und deshalb
+# nicht abgelegt, weil der Lauf mit --nur-mit-gpx lief.
 STATUS_NEW = "neu"
 STATUS_STORED = "gespeichert"
 STATUS_FAILED = "fehlgeschlagen"
-URL_STATUSES = frozenset({STATUS_NEW, STATUS_STORED, STATUS_FAILED})
+STATUS_NO_GPX = "ohne_gpx"
+URL_STATUSES = frozenset({STATUS_NEW, STATUS_STORED, STATUS_FAILED, STATUS_NO_GPX})
 
 # Spalte in der Datenbank -> Schluessel im Metadaten Dictionary.
 # Die Distanz heisst im Dictionary distance, in der Tabelle aber distance_km,
@@ -77,6 +80,29 @@ SORTABLE_COLUMNS = frozenset(
     }
 )
 
+# Vorlage fuer discovered_urls. Das Schema und der Umbau einer aelteren
+# Ablage setzen sie beide ein, damit die erlaubten Status nie
+# auseinanderlaufen. name ist der Tabellenname.
+DISCOVERED_URLS_TABLE = """
+CREATE TABLE IF NOT EXISTS {name} (
+    url                 TEXT PRIMARY KEY,
+    region_id           INTEGER,
+    category            TEXT,
+    tour_date           TEXT,
+    status              TEXT NOT NULL
+                        CHECK (status IN ({statuses})),
+    first_seen          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+"""
+
+
+def _discovered_urls_table(name: str) -> str:
+    """Die Vorlage mit Tabellenname und den erlaubten Status."""
+    statuses = ", ".join(f"'{status}'" for status in sorted(URL_STATUSES))
+    return DISCOVERED_URLS_TABLE.format(name=name, statuses=statuses)
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tours (
     id                  INTEGER PRIMARY KEY,
@@ -115,16 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_tours_region_main ON tours (region_main);
 CREATE INDEX IF NOT EXISTS idx_tours_region_leaf ON tours (region_leaf);
 CREATE INDEX IF NOT EXISTS idx_tours_elevation_gain ON tours (elevation_gain_m);
 
-CREATE TABLE IF NOT EXISTS discovered_urls (
-    url                 TEXT PRIMARY KEY,
-    region_id           INTEGER,
-    category            TEXT,
-    tour_date           TEXT,
-    status              TEXT NOT NULL
-                        CHECK (status IN ('neu', 'gespeichert', 'fehlgeschlagen')),
-    first_seen          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL
-);
+{discovered_urls}
 
 CREATE INDEX IF NOT EXISTS idx_discovered_search
     ON discovered_urls (region_id, category, status, tour_date);
@@ -139,7 +156,7 @@ CREATE TABLE IF NOT EXISTS discovery_progress (
     updated_at          TEXT NOT NULL,
     PRIMARY KEY (region_id, category, date_from, date_to)
 );
-"""
+""".format(discovered_urls=_discovered_urls_table("discovered_urls"))
 
 
 UMLAUT_MAP = {
@@ -251,6 +268,47 @@ class TourStore:
             connection.commit()
         except sqlite3.Error as exc:
             raise TourStoreError(f"Kann das Schema nicht anlegen: {exc}") from exc
+        self._migrate_url_statuses()
+
+    def _migrate_url_statuses(self) -> None:
+        """
+        Baut discovered_urls neu, wenn die CHECK Regel einen Status noch
+        nicht kennt. SQLite kann eine CHECK Regel nicht aendern, es bleibt
+        nur: neue Tabelle, Daten kopieren, alte Tabelle weg. Eine Ablage
+        auf dem aktuellen Stand wird nicht angefasst.
+        """
+        connection = self._require_connection()
+        try:
+            row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = ? AND name = ?",
+                ("table", "discovered_urls"),
+            ).fetchone()
+            if row is None or all(f"'{status}'" in row["sql"] for status in URL_STATUSES):
+                return
+
+            # Alles oder nichts: ohne Transaktion bliebe bei einem Fehler
+            # mitten im Umbau eine halbe Tabelle zurueck.
+            connection.execute("BEGIN")
+            connection.execute(_discovered_urls_table("discovered_urls_neu"))
+            connection.execute(
+                "INSERT INTO discovered_urls_neu "
+                "SELECT url, region_id, category, tour_date, status, "
+                "first_seen, updated_at FROM discovered_urls"
+            )
+            connection.execute("DROP TABLE discovered_urls")
+            connection.execute(
+                "ALTER TABLE discovered_urls_neu RENAME TO discovered_urls"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_discovered_search "
+                "ON discovered_urls (region_id, category, status, tour_date)"
+            )
+            connection.commit()
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise TourStoreError(
+                f"Kann discovered_urls nicht umbauen: {exc}"
+            ) from exc
 
     def upsert_tour(self, metadata: dict) -> int:
         """
@@ -320,6 +378,7 @@ class TourStore:
         date_to: Optional[str] = None,
         text: Optional[str] = None,
         tour_type: Optional[str] = None,
+        with_gpx: bool = False,
         order_by: str = "date_iso",
         descending: bool = False,
         limit: Optional[int] = None,
@@ -344,6 +403,8 @@ class TourStore:
 
         text sucht als Teilzeichenkette im Berichtstext und im Titel, nach
         derselben Normalisierung wie die uebrigen Filter.
+
+        with_gpx laesst nur Touren mit heruntergeladener GPX Datei uebrig.
 
         max_duration_minutes trifft nur Touren mit gefuellter Gehzeit.
         Mehrtaegige Touren haben dort NULL und fallen heraus, denn ein
@@ -412,6 +473,9 @@ class TourStore:
                 "tour_type(difficulty_hiking, difficulty_alpine, difficulty_ski) = ?"
             )
             parameters.append(tour_type)
+
+        if with_gpx:
+            conditions.append("gpx_path IS NOT NULL")
 
         if order_by not in SORTABLE_COLUMNS:
             raise TourStoreError(
@@ -501,13 +565,17 @@ class TourStore:
 
     def skip_reason(self, url: str) -> Optional[str]:
         """
-        Grund, eine URL nicht zu laden, sonst None. Gespeicherte Touren und
-        dauerhaft fehlgeschlagene URLs werden nie erneut angefragt.
+        Grund, eine URL nicht zu laden, sonst None. Gespeicherte Touren,
+        dauerhaft fehlgeschlagene URLs und Touren ohne GPX Datei werden nie
+        erneut angefragt.
         """
         if self.get_by_url(url) is not None:
             return "bereits gespeichert"
-        if self.url_status(url) == STATUS_FAILED:
+        status = self.url_status(url)
+        if status == STATUS_FAILED:
             return "frueher dauerhaft fehlgeschlagen"
+        if status == STATUS_NO_GPX:
+            return "hat keine GPX Datei"
         return None
 
     def add_discovered(

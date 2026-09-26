@@ -180,6 +180,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python query.py --sportart Skitour --von 2020 --bis 2025\n"
             "  python query.py --region Uri --tourtyp ski-hochtour --schwierigkeit ZS\n"
             "  python query.py --text biwak\n"
+            "  python query.py --region Wallis --mit-gpx\n"
             "  python query.py --sortierung distance_km --absteigend --limit 5\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -240,6 +241,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sucht im Berichtstext und im Titel, z.B. biwak",
     )
     parser.add_argument(
+        "--mit-gpx",
+        action="store_true",
+        help="Nur Touren mit heruntergeladener GPX Datei",
+    )
+    parser.add_argument(
         "--sortierung",
         default="date_iso",
         choices=sorted(SORTABLE_COLUMNS),
@@ -274,6 +280,7 @@ def search(store: TourStore, args: argparse.Namespace) -> list[dict]:
         date_to=args.bis,
         text=args.text,
         tour_type=args.tourtyp,
+        with_gpx=args.mit_gpx,
         order_by=args.sortierung,
         descending=args.absteigend,
         limit=args.limit,

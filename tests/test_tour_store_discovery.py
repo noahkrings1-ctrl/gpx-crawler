@@ -1,8 +1,12 @@
 """Ablage: Ski Skala, Berichtstext, Datumsbereich, bekannte URLs und Suchstand."""
 
+import sqlite3
+from pathlib import Path
+
 import pytest
 
 from storage import TourStore, TourStoreError
+from storage.tour_store import STATUS_NO_GPX
 
 
 def tour(**overrides) -> dict:
@@ -90,12 +94,22 @@ def test_known_means_stored_or_discovered(store) -> None:
 def test_skip_reason_for_stored_and_failed_urls_only(store) -> None:
     store.upsert_tour(tour(source_url="https://x/gespeichert.html"))
     store.record_url_status("https://x/404.html", "fehlgeschlagen")
+    store.record_url_status("https://x/ohne.html", STATUS_NO_GPX)
     store.add_discovered([("https://x/offen.html", None)], 146, "ski")
 
     assert store.skip_reason("https://x/gespeichert.html") == "bereits gespeichert"
     assert "fehlgeschlagen" in store.skip_reason("https://x/404.html")
+    assert store.skip_reason("https://x/ohne.html") == "hat keine GPX Datei"
     assert store.skip_reason("https://x/offen.html") is None
     assert store.skip_reason("https://x/unbekannt.html") is None
+
+
+def test_a_tour_without_gpx_counts_as_known(store) -> None:
+    """Sonst wuerde die Discovery dieselbe URL wieder ausliefern."""
+    store.record_url_status("https://x/ohne.html", STATUS_NO_GPX)
+
+    assert store.is_known_url("https://x/ohne.html")
+    assert store.url_status("https://x/ohne.html") == STATUS_NO_GPX
 
 
 def test_unknown_status_is_rejected(store) -> None:
@@ -210,3 +224,94 @@ def test_unknown_tour_type_or_grade_is_rejected(alpine_store) -> None:
         alpine_store.find_tours(tour_type="gletscher")
     with pytest.raises(TourStoreError, match="keine Schwierigkeitsstufe"):
         alpine_store.find_tours(difficulty="alpinwandern")
+
+# --- Umbau einer aelteren Ablage ---------------------------------------------
+
+# Die Tabelle, wie sie vor dem Status ohne_gpx aussah.
+ALTE_TABELLE = """
+CREATE TABLE discovered_urls (
+    url                 TEXT PRIMARY KEY,
+    region_id           INTEGER,
+    category            TEXT,
+    tour_date           TEXT,
+    status              TEXT NOT NULL
+                        CHECK (status IN ('neu', 'gespeichert', 'fehlgeschlagen')),
+    first_seen          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+CREATE INDEX idx_discovered_search
+    ON discovered_urls (region_id, category, status, tour_date);
+"""
+
+
+def alte_ablage(path: Path) -> None:
+    """Legt eine Ablage im Stand vor dem neuen Status an, mit einer URL darin."""
+    connection = sqlite3.connect(path)
+    connection.executescript(ALTE_TABELLE)
+    connection.execute(
+        "INSERT INTO discovered_urls VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("https://x/alt.html", 146, "ski", "2025-03-01", "neu", "frueher", "frueher"),
+    )
+    connection.commit()
+    connection.close()
+
+
+def test_the_old_table_really_rejects_the_new_status(tmp_path: Path) -> None:
+    """Voraussetzung des Umbaus: ohne ihn liesse sich ohne_gpx nicht ablegen."""
+    target = tmp_path / "alt.sqlite3"
+    alte_ablage(target)
+    connection = sqlite3.connect(target)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            "INSERT INTO discovered_urls VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("https://x/neu.html", 146, "ski", None, STATUS_NO_GPX, "jetzt", "jetzt"),
+        )
+    connection.close()
+
+
+def test_an_older_database_is_rebuilt_and_keeps_its_rows(tmp_path: Path) -> None:
+    target = tmp_path / "alt.sqlite3"
+    alte_ablage(target)
+
+    with TourStore(target) as store:
+        store.record_url_status("https://x/ohne.html", STATUS_NO_GPX)
+
+        alt = store.connection.execute(
+            "SELECT * FROM discovered_urls WHERE url = ?", ("https://x/alt.html",)
+        ).fetchone()
+        assert alt["status"] == "neu"
+        assert alt["region_id"] == 146
+        assert alt["category"] == "ski"
+        assert alt["tour_date"] == "2025-03-01"
+        assert alt["first_seen"] == "frueher"
+        assert store.pending_urls(146, "ski") == ["https://x/alt.html"]
+        assert store.url_status("https://x/ohne.html") == STATUS_NO_GPX
+
+        namen = {
+            row["name"]
+            for row in store.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = ?", ("index",)
+            )
+        }
+        assert "idx_discovered_search" in namen
+        uebrig = store.connection.execute(
+            "SELECT name FROM sqlite_master WHERE name = ?", ("discovered_urls_neu",)
+        ).fetchone()
+        assert uebrig is None
+
+
+def test_a_current_database_is_left_alone(tmp_path: Path) -> None:
+    target = tmp_path / "aktuell.sqlite3"
+    with TourStore(target) as store:
+        store.record_url_status("https://x/1.html", STATUS_NO_GPX)
+        vorher = store.connection.execute(
+            "SELECT sql FROM sqlite_master WHERE name = ?", ("discovered_urls",)
+        ).fetchone()["sql"]
+
+    with TourStore(target) as store:
+        nachher = store.connection.execute(
+            "SELECT sql FROM sqlite_master WHERE name = ?", ("discovered_urls",)
+        ).fetchone()["sql"]
+        assert nachher == vorher
+        assert store.url_status("https://x/1.html") == STATUS_NO_GPX

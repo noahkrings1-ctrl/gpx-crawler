@@ -151,3 +151,40 @@ def test_parser_rejects_unknown_tour_type_and_non_grades() -> None:
         query.build_parser().parse_args(["--tourtyp", "gletscher"])
     with pytest.raises(SystemExit):
         query.build_parser().parse_args(["--schwierigkeit", "alpinwandern"])
+
+# --- Nur Touren mit GPX Datei ------------------------------------------------
+
+
+@pytest.fixture
+def database_mit_gpx(tmp_path: Path) -> Path:
+    target = tmp_path / "tours.sqlite3"
+    with TourStore(target) as store:
+        store.upsert_tour(
+            tour(
+                source_url="https://www.hikr.org/tour/post1.html",
+                title="Tour mit Datei",
+                gpx_path="data/gpx/tour.gpx",
+                distance=12.5,
+            )
+        )
+        store.upsert_tour(
+            tour(source_url="https://www.hikr.org/tour/post2.html", title="Tour ohne Datei")
+        )
+    return target
+
+
+def test_mit_gpx_leaves_out_tours_without_a_file(database_mit_gpx: Path, capsys) -> None:
+    code = query.main(["--datenbank", str(database_mit_gpx), "--mit-gpx"])
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "Tour mit Datei" in output
+    assert "Tour ohne Datei" not in output
+
+
+def test_without_the_option_both_are_shown(database_mit_gpx: Path, capsys) -> None:
+    query.main(["--datenbank", str(database_mit_gpx)])
+
+    output = capsys.readouterr().out
+    assert "Tour mit Datei" in output
+    assert "Tour ohne Datei" in output

@@ -75,9 +75,14 @@ def store(tmp_path: Path):
         yield opened
 
 
-def run(tmp_path: Path, urls: list[str], store: TourStore):
+def run(tmp_path: Path, urls: list[str], store: TourStore, require_gpx: bool = False):
     return main_module.run_tours(
-        urls, html_dir=tmp_path / "html", gpx_dir=tmp_path / "gpx", delay=0, database=store
+        urls,
+        html_dir=tmp_path / "html",
+        gpx_dir=tmp_path / "gpx",
+        delay=0,
+        database=store,
+        require_gpx=require_gpx,
     )
 
 
@@ -545,3 +550,89 @@ def test_unreadable_gpx_header_does_not_stop_the_run(tmp_path, hikr, store) -> N
     assert [entry["source_url"] for entry in results] == [post(1), post(2)]
     assert results[0]["gpx_path"] is None
     assert store.url_status(post(1)) == "gespeichert"
+
+# --- Nur Touren mit GPX Datei ------------------------------------------------
+
+
+def test_without_the_filter_a_tour_without_gpx_is_stored(tmp_path, hikr, store) -> None:
+    hikr["pages"][post(1)] = HTML_WITHOUT_GPX
+
+    results, failures = run(tmp_path, [post(1)], store)
+
+    assert failures == []
+    assert len(results) == 1
+    assert store.get_by_url(post(1)) is not None
+    assert store.url_status(post(1)) == "gespeichert"
+
+
+def test_with_the_filter_only_tours_with_a_gpx_file_are_stored(tmp_path, hikr, store, capsys) -> None:
+    hikr["pages"][post(1)] = HTML
+    hikr["pages"][post(2)] = HTML_WITHOUT_GPX
+
+    results, failures = run(tmp_path, [post(1), post(2)], store, require_gpx=True)
+
+    assert failures == []
+    assert [entry["source_url"] for entry in results] == [post(1)]
+    assert store.get_by_url(post(1))["gpx_path"] is not None
+    assert store.get_by_url(post(2)) is None
+    assert store.url_status(post(2)) == "ohne_gpx"
+    assert "ohne GPX Datei" in capsys.readouterr().out
+
+
+def test_a_tour_without_gpx_is_never_requested_again(tmp_path, hikr, store) -> None:
+    hikr["pages"][post(1)] = HTML_WITHOUT_GPX
+    run(tmp_path, [post(1)], store, require_gpx=True)
+    hikr["requested"].clear()
+
+    results, failures = run(tmp_path, [post(1)], store, require_gpx=True)
+
+    assert hikr["requested"] == []
+    assert results == [] and failures == []
+
+
+def test_a_tour_with_a_broken_gpx_link_is_not_stored_either(tmp_path, hikr, store) -> None:
+    """Ohne Datei ist die Tour fuer diesen Lauf nichts wert, egal woran es lag."""
+    hikr["pages"][post(1)] = HTML
+    hikr["status"][GPX_URL] = 404
+
+    results, failures = run(tmp_path, [post(1)], store, require_gpx=True)
+
+    assert failures == []
+    assert results == []
+    assert store.get_by_url(post(1)) is None
+    assert store.url_status(post(1)) == "ohne_gpx"
+
+
+def test_nur_mit_gpx_reaches_the_run(tmp_path, monkeypatch) -> None:
+    gesehen = {}
+
+    def fake_run(urls, **kwargs):
+        gesehen.update(kwargs)
+        return [], []
+
+    monkeypatch.setattr(main_module, "HikrDiscovery", lambda downloader: FakeDiscovery(entries(41)))
+    monkeypatch.setattr(main_module, "run_tours", fake_run)
+
+    code = main_module.main(
+        ["--discover", "--region", "146", "--kategorie", "skitouren", "--nur-mit-gpx",
+         "--datenbank", str(tmp_path / "tours.sqlite3")]
+    )
+
+    assert code == 0
+    assert gesehen["require_gpx"] is True
+
+
+def test_nur_mit_gpx_also_works_for_the_fixed_list(tmp_path, monkeypatch) -> None:
+    """Die Option ist eine Regel fuers Ablegen, nicht fuers Suchen."""
+    gesehen = {}
+
+    def fake_run(urls, **kwargs):
+        gesehen.update(kwargs)
+        return [], []
+
+    monkeypatch.setattr(main_module, "run_tours", fake_run)
+
+    code = main_module.main(["--nur-mit-gpx", "--datenbank", str(tmp_path / "tours.sqlite3")])
+
+    assert code == 0
+    assert gesehen["require_gpx"] is True
