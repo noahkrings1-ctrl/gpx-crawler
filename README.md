@@ -113,6 +113,7 @@ Vier Entscheidungen, die den Aufbau tragen:
     python main.py --discover --region 146 --kategorie ski --nur-urls
     python main.py --discover --region 146 --kategorie wandern --von 2026 --bis 2026 --schwierigkeit T4 T5 T6
     python main.py --discover --region 146 --kategorie hochtouren --von 2026 --bis 2026 --tourtyp ski-hochtour --schwierigkeit WS ZS
+    python main.py --discover --region 3 --kategorie wandern --nur-mit-gpx
 
 Ohne `--discover` arbeitet `main.py` ausschliesslich die feste Liste
 TOUR_URLS ab. Die Discovery startet nie von selbst.
@@ -126,6 +127,7 @@ TOUR_URLS ab. Die Discovery startet nie von selbst.
 | `--tourtyp` | nur Touren mit Hochtourennote: `ski-hochtour` (mit Skinote), `alpinwandern-hochtour` (mit T4 bis T6, ohne Skinote) oder `hochtour` (weder noch) |
 | `--max` | neue Touren je Lauf, Standard 20, hoechstens 100 |
 | `--nur-urls` | gefundene URLs nur anzeigen und vormerken, keine Tour laden |
+| `--nur-mit-gpx` | nur Touren mit GPX Datei ablegen. Gilt auch fuer die feste Liste |
 
 So arbeitet sie:
 
@@ -144,14 +146,19 @@ So arbeitet sie:
   geprueft, sie zeigt jede Note mit ihrer Skala in Kurzform, etwa T4-. Nicht
   passende Touren werden nie angefragt. Jeder Filter ist eine eigene Suche
   mit eigenem Stand.
+- `--nur-mit-gpx` ist der eine Filter, der das nicht kann. Die Listenseite
+  sagt nichts ueber GPX Dateien, das steht erst auf der Tourseite. Die Tour
+  wird also geladen und dann verworfen, wenn keine Datei dabei ist. Ihre URL
+  bekommt den Status ohne_gpx und wird nie erneut angefragt. Der Suchstand
+  bleibt davon unberuehrt, die Option gehoert nicht zum Suchschluessel.
 
 Doppeltes Crawlen ist ausgeschlossen:
 
 - Jede URL steht hoechstens einmal in der Tabelle discovered_urls, ein
   Duplikat laesst die Datenbank nicht zu.
 - Bekannte URLs liefert die Discovery nicht zurueck.
-- Gespeicherte und dauerhaft fehlgeschlagene URLs ueberspringt ein Lauf ohne
-  jede Anfrage, in beiden Modi.
+- Gespeicherte, dauerhaft fehlgeschlagene und als ohne_gpx vermerkte URLs
+  ueberspringt ein Lauf ohne jede Anfrage, in beiden Modi.
 - Eine Option zum erneuten Laden gibt es nicht.
 - Voruebergehende Fehler wie ein Netzausfall zaehlen nicht als gecrawlt, die
   URL bleibt offen und kommt im naechsten Lauf wieder dran.
@@ -208,6 +215,7 @@ Einschraenkung, ohne Angabe kommt die ganze Ablage:
     python query.py --sportart Skitour --von 2020 --bis 2025
     python query.py --text biwak
     python query.py --region Uri --tourtyp ski-hochtour --schwierigkeit ZS
+    python query.py --region Wallis --mit-gpx
     python query.py --sortierung distance_km --absteigend --limit 5
 
 Die Ausgabe ist eine Tabelle mit Datum, Sportart, Region, Schwierigkeit,
@@ -233,6 +241,8 @@ untereinander als oder, mit den uebrigen Filtern bleibt es bei und.
 ganze Jahr.
 
 `--text` sucht im Berichtstext und im Titel.
+
+`--mit-gpx` laesst nur Touren uebrig, zu denen eine GPX Datei vorliegt.
 
 Alle Optionen zeigt `python query.py --help`.
 
@@ -300,6 +310,8 @@ Alle Optionen zeigt `python query.py --help`.
 - Zweiter Parser fuer weitere Websites wie Gipfelbuch
 
 ## Setup
+
+Alle Befehle fuer den taeglichen Gebrauch stehen in ANLEITUNG.md.
 
     python -m venv venv
     venv\Scripts\activate

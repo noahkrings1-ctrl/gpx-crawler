@@ -91,11 +91,17 @@ jedem Lauf veralten.
 - TourStore in storage/tour_store.py, Datei data/tours.sqlite3
 - Tabelle tours mit 27 Spalten, neu sind difficulty_ski und main_text.
   Schluessel ist source_url, upsert statt Duplikat, created_at bleibt erhalten
-- Tabelle discovered_urls: jede bekannte URL einmal, Status neu, gespeichert
-  oder fehlgeschlagen, dazu Region, Kategorie und Tourdatum aus der Liste
+- Tabelle discovered_urls: jede bekannte URL einmal, Status neu, gespeichert,
+  fehlgeschlagen oder ohne_gpx, dazu Region, Kategorie und Tourdatum aus der
+  Liste. Die Tabelle steht einmal als Vorlage DISCOVERED_URLS_TABLE im Code,
+  Schema und Umbau lesen dieselbe, sonst laeuft die CHECK Regel auseinander
+- Eine Ablage aus der Zeit vor einem Status wird beim Oeffnen umgebaut:
+  SQLite kann eine CHECK Regel nicht aendern, also neue Tabelle, Daten
+  kopieren, alte weg, Index neu. Alles in einer Transaktion, siehe
+  _migrate_url_statuses
 - Tabelle discovery_progress: resume_skip und completed je Region, Kategorie
   und Zeitraum. completed bleibt gesetzt, wenn es einmal gesetzt war
-- find_tours filtert nach region, sport, difficulty, tour_type,
+- find_tours filtert nach region, sport, difficulty, tour_type, with_gpx,
   min_elevation_gain, max_elevation_gain, max_duration_minutes, date_from,
   date_to und text, dazu order_by, descending und limit. Fehlender Filter
   heisst kein Filter
