@@ -206,3 +206,15 @@ Eine einzelne GPX Datei nachrechnen, ohne Netz:
     pytest -k gpx
 
 Die Tests gehen nie ins Netz und legen keine Datei im Projekt an.
+
+## 7 Noah's Tourenportal
+
+Die gesammelten Touren lassen sich auch mit der Oberflaeche durchsuchen,
+statt mit query.py:
+
+    C:\Dev\tourenportal\venv\Scripts\python.exe C:\Dev\tourenportal\app.py
+
+Das Portal oeffnet `data\tours.sqlite3` **nur lesend** und fuehrt sein
+eigenes Tourenbuch in einem eigenen Projekt. Ein Crawl kann dem Tourenbuch
+also nichts anhaben, und das Portal dieser Ablage nichts. Die Anleitung
+dazu steht in `C:\Dev\tourenportal\ANLEITUNG.md`.
