@@ -3,35 +3,35 @@ from pathlib import Path
 
 import pytest
 
+from storage import TourStore
 from storage.tour_store import DEFAULT_DB_PATH
 
 
-def _fingerprint(path: Path) -> tuple[bool, int, float]:
-    """Existenz, Groesse und Zeitstempel einer Datei in einem Wert."""
-    if not path.exists():
-        return (False, 0, 0.0)
-    stat = path.stat()
-    return (True, stat.st_size, stat.st_mtime)
-
-
-@pytest.fixture(autouse=True, scope="session")
-def echte_datenbank_bleibt_unberuehrt():
+@pytest.fixture(autouse=True)
+def echte_datenbank_bleibt_unberuehrt(monkeypatch):
     """
     Waechter fuer die echte Ablage unter data/tours.sqlite3.
 
     TourStore laesst sich ohne Pfadargument anlegen und zeigt dann auf die
     echte Datei. Ein Test, der das versehentlich tut, wuerde in die
-    Produktivdaten schreiben, ohne dass es jemand merkt. Dieser Vergleich
-    vor und nach der Suite faellt sofort auf.
-    """
-    before = _fingerprint(DEFAULT_DB_PATH)
-    yield
-    after = _fingerprint(DEFAULT_DB_PATH)
+    Produktivdaten schreiben, ohne dass es jemand merkt.
 
-    assert after == before, (
-        f"Ein Test hat {DEFAULT_DB_PATH} veraendert. Tests muessen tmp_path "
-        f'oder ":memory:" benutzen, nie den Standardpfad.'
-    )
+    Geprueft wird der Pfad beim Anlegen, nicht der Zeitstempel der Datei.
+    Ein Vergleich vor und nach der Suite schlug auch dann an, wenn nebenher
+    ein echter Lauf schrieb: Die Datei gehoert dem Crawler, und der darf
+    laufen, waehrend die Tests laufen.
+    """
+    echtes_init = TourStore.__init__
+
+    def nur_mit_eigenem_pfad(self, db_path=DEFAULT_DB_PATH, *args, **kwargs):
+        if Path(db_path) == Path(DEFAULT_DB_PATH):
+            raise AssertionError(
+                f"Ein Test oeffnet {DEFAULT_DB_PATH}. Tests muessen tmp_path "
+                f'oder ":memory:" benutzen, nie den Standardpfad.'
+            )
+        echtes_init(self, db_path, *args, **kwargs)
+
+    monkeypatch.setattr(TourStore, "__init__", nur_mit_eigenem_pfad)
 
 
 @pytest.fixture(autouse=True)
