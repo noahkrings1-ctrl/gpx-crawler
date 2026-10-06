@@ -316,8 +316,12 @@ def print_summary(results: list[dict], failures: list[tuple[str, Exception]]) ->
     for metadata in sorted(results, key=lambda item: item.get("date_iso") or ""):
         distance = metadata.get("distance")
         distance_text = f"{distance:.2f} km" if distance is not None else "-"
+        # Dieselbe Rangfolge wie bei der Sportart und in query.py. Ohne die
+        # Schneeschuhnote stand bei einem Lauf ueber Schneeschuhtouren in
+        # fast jeder Zeile nur ein Strich.
         difficulty = (
             metadata.get("difficulty_ski")
+            or metadata.get("difficulty_snowshoe")
             or metadata.get("difficulty_alpine")
             or metadata.get("difficulty_hiking")
             or metadata.get("difficulty_climbing")

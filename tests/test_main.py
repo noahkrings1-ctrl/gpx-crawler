@@ -152,3 +152,15 @@ def run(tmp_path: Path, urls: list[str]):
         gpx_dir=tmp_path / "gpx",
         delay=0,
     )
+
+
+def test_the_run_summary_shows_the_snowshoe_grade(capsys) -> None:
+    """Bei einem Lauf ueber Schneeschuhtouren stand sonst fast ueberall ein Strich."""
+    main_module.print_summary(
+        [{"title": "Rottaelligrat", "date_iso": "2026-01-31",
+          "difficulty_snowshoe": "WT3 - Anspruchsvolle Schneeschuhwanderung",
+          "difficulty_alpine": "ZS-", "distance": None}],
+        [],
+    )
+
+    assert "WT3" in capsys.readouterr().out
