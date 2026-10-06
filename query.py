@@ -104,11 +104,15 @@ def format_region(tour: dict) -> str:
 
 def format_difficulty(tour: dict) -> str:
     """
-    Ski zuerst, dann Hochtouren, dann Wandern, dann Klettern.
-    Dieselbe Rangfolge wie bei der Ableitung der Sportart im Parser.
+    Ski zuerst, dann Schneeschuh, Hochtouren, Wandern, Klettern.
+
+    Dieselbe Rangfolge wie bei der Ableitung der Sportart im Parser. Ohne
+    die Schneeschuhnote zeigte eine nach WT4 gesuchte Tour ihre
+    Hochtourennote, und es blieb unklar, warum sie im Ergebnis steht.
     """
     return (
         tour.get("difficulty_ski")
+        or tour.get("difficulty_snowshoe")
         or tour.get("difficulty_alpine")
         or tour.get("difficulty_hiking")
         or tour.get("difficulty_climbing")

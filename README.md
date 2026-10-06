@@ -47,7 +47,9 @@ Parser
 - Zahlen statt Text: Aufstieg und Abstieg in Metern, Gehzeit in Minuten,
   mehrtaegige Touren als Anzahl Tage, Datum als 2026-07-12
 - Region zerlegt in Land, Hauptregion und Gebiet
-- Sportart abgeleitet aus der Schwierigkeitsskala
+- Sportart abgeleitet aus der Schwierigkeitsskala: Skitour vor
+  Schneeschuhtour vor Hochtour vor Wandern vor Klettern
+- Fuenf Skalen, darunter die Schneeschuhskala WT1 bis WT6
 - Distanz aus der GPX Datei mit gpxpy
 - GPX Dateien aelterer Swisstopo App Versionen werden trotz eines Fehlers im
   Dateikopf gelesen
@@ -123,7 +125,7 @@ TOUR_URLS ab. Die Discovery startet nie von selbst.
 | `--region` | ID aus der URL der Regionsseite, etwa 146 aus region146.html fuer Uri, oder ein hinterlegter Name wie Uri, Graubünden, Schweiz |
 | `--kategorie` | alle, wandern, hochtouren, klettern, skitouren, schneeschuhe, klettersteig, eisklettern, oder der Hikr Code wie ski |
 | `--von`, `--bis` | Tourdatum als Jahr oder Datum, beide Grenzen eingeschlossen |
-| `--schwierigkeit` | nur Eintraege mit dieser Stufe auf irgendeiner Skala, z.B. T4 T5 T6 fuer Alpinwanderungen oder WS ZS. ZS trifft ZS-, ZS und ZS+, aber nicht WS. Mehrere Werte gelten als oder |
+| `--schwierigkeit` | nur Eintraege mit dieser Stufe auf irgendeiner Skala, z.B. T4 T5 T6 fuer Alpinwanderungen, WS ZS fuer Hochtouren oder WT3 WT4 fuer Schneeschuhtouren. ZS trifft ZS-, ZS und ZS+, aber nicht WS. Mehrere Werte gelten als oder |
 | `--tourtyp` | nur Touren mit Hochtourennote: `ski-hochtour` (mit Skinote), `alpinwandern-hochtour` (mit T4 bis T6, ohne Skinote) oder `hochtour` (weder noch) |
 | `--max` | neue Touren je Lauf, Standard 20, hoechstens 100 |
 | `--nur-urls` | gefundene URLs nur anzeigen und vormerken, keine Tour laden |
@@ -283,9 +285,9 @@ Alle Optionen zeigt `python query.py --help`.
 - Der Parser kennt nur deutschsprachige Hikr Seiten. Die Spalte language
   existiert, wird aber nicht befuellt.
 - Die Mountainbike Skala wird verworfen.
-- Es gibt keine Schemamigration. Neue Spalten brauchen eine neue
-  Datenbankdatei. Der Neuaufbau kommt ohne Netz aus, weil HTML und GPX
-  Dateien lokal liegen.
+- Eine neue Spalte kommt beim Oeffnen per ALTER TABLE dazu, bleibt aber
+  leer, bis die Touren erneut gelesen werden. Das geht ohne Netz, weil HTML
+  und GPX Dateien lokal liegen.
 - Regionsnamen kennt die Discovery nur fuer hinterlegte Regionen, alle anderen
   gehen ueber ihre ID.
 - Wird ein Bericht geloescht oder nachtraeglich mit altem Datum eingetragen,

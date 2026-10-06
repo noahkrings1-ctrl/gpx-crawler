@@ -38,6 +38,7 @@ COLUMN_MAP = {
     "difficulty_alpine": "difficulty_alpine",
     "difficulty_climbing": "difficulty_climbing",
     "difficulty_ski": "difficulty_ski",
+    "difficulty_snowshoe": "difficulty_snowshoe",
     "elevation_gain_m": "elevation_gain_m",
     "elevation_loss_m": "elevation_loss_m",
     "time_required": "time_required",
@@ -55,11 +56,16 @@ COLUMN_MAP = {
 REGION_COLUMNS = ("region_country", "region_main", "region_area", "region_leaf")
 
 # Hikr fuehrt je Sportart eine eigene Skala, ein Filter prueft alle vier.
+# Spalten, die spaeter dazukamen. Eine bestehende Ablage bekommt sie beim
+# Oeffnen ergaenzt, siehe _migrate_columns.
+ADDED_COLUMNS = (("tours", "difficulty_snowshoe", "TEXT"),)
+
 DIFFICULTY_COLUMNS = (
     "difficulty_hiking",
     "difficulty_alpine",
     "difficulty_climbing",
     "difficulty_ski",
+    "difficulty_snowshoe",
 )
 
 # Nur diese Spalten duerfen sortieren. Ein Spaltenname laesst sich nicht als
@@ -120,6 +126,7 @@ CREATE TABLE IF NOT EXISTS tours (
     difficulty_alpine   TEXT,
     difficulty_climbing TEXT,
     difficulty_ski      TEXT,
+    difficulty_snowshoe TEXT,
     elevation_gain_m    INTEGER,
     elevation_loss_m    INTEGER,
     time_required       TEXT,
@@ -268,7 +275,32 @@ class TourStore:
             connection.commit()
         except sqlite3.Error as exc:
             raise TourStoreError(f"Kann das Schema nicht anlegen: {exc}") from exc
+        self._migrate_columns()
         self._migrate_url_statuses()
+
+    def _migrate_columns(self) -> None:
+        """
+        Ergaenzt Spalten, die es in frueheren Staenden noch nicht gab.
+
+        CREATE TABLE IF NOT EXISTS laesst eine bestehende Tabelle in Ruhe,
+        eine neue Spalte kaeme dort nie an. ALTER TABLE ADD COLUMN genuegt,
+        ein Neubau wie bei einer CHECK Regel ist nicht noetig. Die Werte
+        bleiben leer, bis die Touren erneut gelesen werden.
+        """
+        connection = self._require_connection()
+        for tabelle, spalte, typ in ADDED_COLUMNS:
+            vorhanden = {
+                row["name"] for row in connection.execute(f"PRAGMA table_info({tabelle})")
+            }
+            if not vorhanden or spalte in vorhanden:
+                continue
+            try:
+                connection.execute(f"ALTER TABLE {tabelle} ADD COLUMN {spalte} {typ}")
+                connection.commit()
+            except sqlite3.Error as exc:
+                raise TourStoreError(
+                    f"Kann die Spalte {tabelle}.{spalte} nicht ergaenzen: {exc}"
+                ) from exc
 
     def _migrate_url_statuses(self) -> None:
         """

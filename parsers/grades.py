@@ -4,7 +4,11 @@ from typing import Optional, Sequence
 
 # Skalen, gegen die eine Stufe verglichen wird. Die Mountainbike Skala fuehrt
 # das Projekt nicht, sie zaehlt bei keinem Vergleich.
-GRADE_SCALES = ("wandern", "hochtouren", "klettern", "ski")
+#
+# "schneeshuhtouren" ist kein Tippfehler von uns: Hikr schreibt die
+# Schneeschuhskala so, ohne das erste c. Geprueft im Oktober 2026 auf einer
+# Listenseite und auf Tourseiten, beide Male gleich.
+GRADE_SCALES = ("wandern", "hochtouren", "klettern", "ski", "schneeshuhtouren")
 
 # Tourtypen fuer Touren mit Hochtourennote. Sie schliessen sich gegenseitig aus.
 TOUR_TYPES = ("ski-hochtour", "alpinwandern-hochtour", "hochtour")
@@ -12,9 +16,12 @@ TOUR_TYPES = ("ski-hochtour", "alpinwandern-hochtour", "hochtour")
 # Wanderstufen, die als Alpinwandern gelten.
 ALPINE_HIKING_GRADES = ("t4", "t5", "t6")
 
-# Erlaubte Suchbegriffe: T1 bis T6, die Hochtouren und Skiskala von L bis EX
-# und roemische UIAA Grade, jeweils wahlweise mit + oder -.
-GRADE_TERM = re.compile(r"^(t[1-6]|l|ws|zs|s|ss|as|ex|[ivx]+)[+-]?$", re.IGNORECASE)
+# Erlaubte Suchbegriffe: T1 bis T6, WT1 bis WT6 fuer Schneeschuhtouren, die
+# Hochtouren und Skiskala von L bis EX und roemische UIAA Grade, jeweils
+# wahlweise mit + oder -.
+GRADE_TERM = re.compile(
+    r"^(t[1-6]|wt[1-6]|l|ws|zs|s|ss|as|ex|[ivx]+)[+-]?$", re.IGNORECASE
+)
 
 # Die Stufe steht vorne, danach folgt je nach Quelle eine Beschreibung oder
 # der Skalenname: "T4- - Alpinwandern", "III (UIAA-Skala)", "II(UIAA-Skala)".

@@ -67,11 +67,18 @@ jedem Lauf veralten.
 - Die Region ist zerlegt in region_country, region_main und region_area, dazu
   region_leaf. region_main ist in der Schweiz der Kanton, in Oesterreich eine
   Gebirgsgruppe, daher der neutrale Name
-- Vier Skalen: Wandern, Hochtouren, Klettern, Ski. Die Ski Skala heisst auf
-  Listen und Tourseiten "Ski Schwierigkeit", bestaetigt beim ersten echten
-  Lauf. LABEL_MAP versteht zusaetzlich "Skitouren Schwierigkeit" als Rueckfall
-- sport: Skitour vor Hochtour vor Wandern vor Klettern. Eine UIAA Note neben
-  einer T Note ist nur eine Kletterstelle
+- Fuenf Skalen: Wandern, Hochtouren, Klettern, Ski, Schneeschuh. Die Ski
+  Skala heisst auf Listen und Tourseiten "Ski Schwierigkeit", bestaetigt beim
+  ersten echten Lauf. LABEL_MAP versteht zusaetzlich "Skitouren
+  Schwierigkeit" als Rueckfall
+- Die Schneeschuhskala heisst bei Hikr "Schneeshuhtouren Schwierigkeit",
+  ohne das erste c. Das ist kein Tippfehler von uns, sondern steht so auf
+  Listen und Tourseiten, geprueft im Oktober 2026. Die richtige Schreibweise
+  bleibt als Rueckfall. Ihre Stufen sind WT1 bis WT6
+- sport: Skitour vor Schneeschuhtour vor Hochtour vor Wandern vor Klettern.
+  Eine UIAA Note neben einer T Note ist nur eine Kletterstelle. Die
+  Schneeschuhnote steht vor der Hochtourennote, weil 25 von 30 solchen
+  Touren beide tragen und im Titel Schneeschuhtour heissen
 - main_text kommt nur aus div#main_text, nicht aus der ganzen Seite
 - parsers/grades.py haelt die Regeln fuer Stufen und Tourtypen. Discovery und
   Ablage nutzen dieselben Funktionen. Stufen werden exakt verglichen: ZS
@@ -89,7 +96,11 @@ jedem Lauf veralten.
 
 ### Ablage
 - TourStore in storage/tour_store.py, Datei data/tours.sqlite3
-- Tabelle tours mit 27 Spalten, neu sind difficulty_ski und main_text.
+- Neue Spalten kommen ueber ADDED_COLUMNS und _migrate_columns dazu, mit
+  ALTER TABLE beim Oeffnen. CREATE TABLE IF NOT EXISTS laesst eine
+  bestehende Tabelle in Ruhe, ohne das kaeme eine Spalte dort nie an. Die
+  Werte bleiben leer, bis die Touren erneut gelesen werden
+- Tabelle tours, neu sind difficulty_snowshoe, difficulty_ski und main_text.
   Schluessel ist source_url, upsert statt Duplikat, created_at bleibt erhalten
 - Tabelle discovered_urls: jede bekannte URL einmal, Status neu, gespeichert,
   fehlgeschlagen oder ohne_gpx, dazu Region, Kategorie und Tourdatum aus der
@@ -134,6 +145,10 @@ jedem Lauf veralten.
 - tests/conftest.py hat drei Helfer: Waechter fuer data/tours.sqlite3,
   Netzwaechter, der jede echte Socket Verbindung sperrt, und fake_clock, eine
   Uhr, die nur beim Schlafen vorrueckt. Pausen werden damit ohne Warten geprueft
+- Der Waechter prueft den Pfad beim Anlegen eines TourStore, nicht den
+  Zeitstempel der Datei. Ein Vergleich vor und nach der Suite schlug auch
+  dann an, wenn nebenher ein echter Lauf schrieb: Die Datei gehoert dem
+  Crawler, und der darf laufen, waehrend die Tests laufen
 - tests/fixtures/hikr enthaelt Nachbauten von Listenseiten und robots.txt mit
   erfundenen Titeln, Daten und Nummern. Keine echten Hikr Seiten ins Repo
 - Schreibende Tests nutzen tmp_path, reine Abfragetests ":memory:"
@@ -170,8 +185,6 @@ jedem Lauf veralten.
 - Die Schwierigkeit ist kein Bereichsfilter, bis WS geht noch nicht
 - Nur deutschsprachige Hikr Seiten, die Spalte language wird nicht befuellt
 - Die Mountainbike Skala wird verworfen
-- Keine Schemamigration. CREATE TABLE IF NOT EXISTS ergaenzt keine Spalten in
-  einer bestehenden Datei, neue Spalten brauchen eine neue Datenbankdatei
 - Geloeschte oder nachtraeglich mit altem Datum eingetragene Berichte kann die
   Discovery in einem durchsuchten Bereich uebersehen
 - Die Fixtures sind Nachbauten. Eine geaenderte Hikr Seite faellt erst im

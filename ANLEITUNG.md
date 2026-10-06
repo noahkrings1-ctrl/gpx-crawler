@@ -126,6 +126,15 @@ Zur Schwierigkeit: verglichen wird die Stufe genau. `ZS` trifft ZS-, ZS und
 ZS+, aber nicht WS. `T4` trifft nicht T5. Wer eine Spanne will, zaehlt die
 Stufen auf: `--schwierigkeit T4 T5 T6`.
 
+Die Skalen: `T1` bis `T6` beim Wandern, `L` bis `EX` bei Hochtouren und
+Skitouren, roemische Zahlen beim Klettern, `WT1` bis `WT6` bei
+Schneeschuhtouren.
+
+Schneeschuhtouren holst du so:
+
+    python main.py --discover --region 146 --kategorie schneeschuhe --max 100
+    python query.py --sportart Schneeschuhtour --schwierigkeit WT3 WT4
+
 ## 4 In der Ablage nachsehen
 
 Die Ablage liegt in `data\tours.sqlite3`, mit drei Tabellen:

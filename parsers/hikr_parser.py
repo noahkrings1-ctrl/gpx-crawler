@@ -22,6 +22,11 @@ class HikrParser:
         "klettern schwierigkeit": "difficulty_climbing",
         "ski schwierigkeit": "difficulty_ski",
         "skitouren schwierigkeit": "difficulty_ski",
+        # Hikr schreibt die Schneeschuhskala ohne das erste c, so steht es
+        # auf Listen und Tourseiten. Die richtige Schreibweise bleibt als
+        # Rueckfall, falls Hikr den Tippfehler einmal behebt.
+        "schneeshuhtouren schwierigkeit": "difficulty_snowshoe",
+        "schneeschuhtouren schwierigkeit": "difficulty_snowshoe",
         "aufstieg": "elevation_gain",
         "abstieg": "elevation_loss",
         "zeitbedarf": "time_required",
@@ -62,6 +67,7 @@ class HikrParser:
             "difficulty_alpine": fiche.get("difficulty_alpine"),
             "difficulty_climbing": fiche.get("difficulty_climbing"),
             "difficulty_ski": fiche.get("difficulty_ski"),
+            "difficulty_snowshoe": fiche.get("difficulty_snowshoe"),
             "region_leaf": self._region_leaf(fiche.get("region")),
             "region_country": region_country,
             "region_main": region_main,
@@ -131,7 +137,13 @@ class HikrParser:
         """
         Feld spezifische Nachbearbeitung. Bei Region entfernen wir das
         Fuellzeichen und behalten die Kette Welt, Schweiz, Uri.
+
+        Zuvor wird jede Folge von Leerraum zu einem Leerzeichen. Hikr bricht
+        manche Zellen mitten im Wert um, etwa die Schneeschuhnote als
+        "WT4 -" und "Schneeschuhtour" auf zwei Zeilen. So ein Umbruch
+        zerreisst spaeter jede Tabelle.
         """
+        value = re.sub(r"\s+", " ", value).strip()
         if key == "region":
             # Aus "Welt » Schweiz » Uri" wird eine Liste, wir behalten aber den String
             return value.replace("»", ",").replace("  ", " ").strip()
@@ -218,9 +230,16 @@ class HikrParser:
         den Aufstieg vermerkt ist. Die Hochtouren Skala steht nur bei echten
         Hochtouren. Eine UIAA Note neben einer T Note markiert dagegen nur
         eine Kletterstelle, der Charakter bleibt eine Wanderung.
+
+        Die Schneeschuhnote steht vor der Hochtourennote: Von 30 Touren mit
+        WT Note tragen 25 auch eine Hochtourennote, und sie heissen im Titel
+        trotzdem Schneeschuhtour. Hinter der Skinote bleibt sie, denn wo
+        eine Skinote steht, ging es mit Ski.
         """
         if fiche.get("difficulty_ski"):
             return "Skitour"
+        if fiche.get("difficulty_snowshoe"):
+            return "Schneeschuhtour"
         if fiche.get("difficulty_alpine"):
             return "Hochtour"
         if fiche.get("difficulty_hiking"):

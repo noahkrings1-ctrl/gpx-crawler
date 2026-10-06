@@ -554,3 +554,42 @@ def test_unknown_tour_type_or_grade_is_rejected_before_any_request(alpine_page, 
         HikrDiscovery(alpine_page).discover(146, "hochtouren", **criteria)
 
     assert alpine_page.requested == []
+
+
+# --- Schneeschuhtouren auf der Liste ------------------------------------------
+
+# Nachgebaut nach region146/raq, geprueft im Oktober 2026. Hikr schreibt die
+# Skala dort ebenfalls ohne das erste c.
+SNOWSHOE_LISTING = """
+<html><body>
+  <div class="content-list">
+    <span title="Schneeshuhtouren Schwierigkeit">WT3</span>
+    <div title="Tour Datum">6 Jan 26</div>
+    <strong><a href="https://www.hikr.org/tour/post100001.html">Rottaelligrat</a></strong>
+  </div>
+  <div class="content-list">
+    <span title="Wandern Schwierigkeit">T2</span>
+    <span title="Schneeshuhtouren Schwierigkeit">WT4</span>
+    <div title="Tour Datum">7 Jan 26</div>
+    <strong><a href="https://www.hikr.org/tour/post100002.html">Etzlihuette</a></strong>
+  </div>
+</body></html>
+"""
+
+
+def test_the_snowshoe_badge_is_read_from_the_listing() -> None:
+    page = parse_listing(SNOWSHOE_LISTING, 146, "raq")
+
+    assert [entry.url for entry in page.entries] == [post(100001), post(100002)]
+    assert page.entries[0].difficulties == (("schneeshuhtouren", "WT3"),)
+    assert ("schneeshuhtouren", "WT4") in page.entries[1].difficulties
+
+
+def test_a_snowshoe_grade_can_be_filtered_on_the_listing() -> None:
+    """Ohne die Skala in GRADE_SCALES faende --schwierigkeit WT3 hier nichts."""
+    page = parse_listing(SNOWSHOE_LISTING, 146, "raq")
+
+    assert matches_difficulty(page.entries[0], ["wt3"])
+    assert not matches_difficulty(page.entries[0], ["wt4"])
+    assert matches_difficulty(page.entries[1], ["wt4"])
+    assert matches_difficulty(page.entries[1], ["t2"])

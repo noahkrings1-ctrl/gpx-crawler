@@ -188,3 +188,32 @@ def test_without_the_option_both_are_shown(database_mit_gpx: Path, capsys) -> No
     output = capsys.readouterr().out
     assert "Tour mit Datei" in output
     assert "Tour ohne Datei" in output
+
+
+# --- Schneeschuhskala ---------------------------------------------------------
+
+
+def test_the_snowshoe_grade_is_shown_not_the_alpine_one() -> None:
+    """Sonst bliebe unklar, warum eine nach WT4 gesuchte Tour im Ergebnis steht."""
+    row = {"difficulty_snowshoe": "WT4 - Schneeschuhtour", "difficulty_alpine": "ZS-"}
+
+    assert query.format_difficulty(row) == "WT4 - Schneeschuhtour"
+    assert query.format_difficulty({"difficulty_ski": "WS", "difficulty_snowshoe": "WT4"}) == "WS"
+
+
+def test_searching_for_a_wt_grade_on_the_command_line(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "tours.sqlite3"
+    with TourStore(target) as store:
+        store.upsert_tour(tour(source_url="https://x/wt.html", title="Schneeschuhtour am Speer",
+                               sport="Schneeschuhtour", difficulty_snowshoe="WT4 - Schneeschuhtour",
+                               difficulty_alpine="ZS-"))
+        store.upsert_tour(tour(source_url="https://x/ski.html", title="Skitour", sport="Skitour",
+                               difficulty_ski="WS"))
+
+    code = query.main(["--datenbank", str(target), "--schwierigkeit", "WT4"])
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "Schneeschuhtour am Speer" in output
+    assert "WT4" in output
+    assert "Skitour" not in output

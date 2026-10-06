@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from storage import TourStore, TourStoreError
-from storage.tour_store import STATUS_NO_GPX
+from storage.tour_store import SCHEMA, STATUS_NO_GPX
 
 
 def tour(**overrides) -> dict:
@@ -315,3 +315,52 @@ def test_a_current_database_is_left_alone(tmp_path: Path) -> None:
         ).fetchone()["sql"]
         assert nachher == vorher
         assert store.url_status("https://x/1.html") == STATUS_NO_GPX
+
+
+# --- Schneeschuhskala ---------------------------------------------------------
+
+
+def test_the_snowshoe_grade_is_stored_and_searchable(store) -> None:
+    store.upsert_tour(tour(source_url="https://x/wt.html", title="Schneeschuhtour",
+                           sport="Schneeschuhtour", difficulty_snowshoe="WT3 - Anspruchsvolle Schneeschuhwanderung"))
+    store.upsert_tour(tour(source_url="https://x/ski.html", title="Skitour",
+                           sport="Skitour", difficulty_ski="WS"))
+
+    assert store.get_by_url("https://x/wt.html")["difficulty_snowshoe"].startswith("WT3")
+    assert titles(store.find_tours(difficulty="WT3")) == {"Schneeschuhtour"}
+    assert titles(store.find_tours(difficulty="WT4")) == set()
+    assert titles(store.find_tours(sport="Schneeschuhtour")) == {"Schneeschuhtour"}
+
+
+def test_an_older_database_gets_the_new_column(tmp_path: Path) -> None:
+    """
+    CREATE TABLE IF NOT EXISTS laesst eine bestehende Tabelle in Ruhe.
+
+    Ohne ALTER TABLE kaeme die Spalte in einer gewachsenen Ablage nie an.
+    """
+    target = tmp_path / "alt.sqlite3"
+    # Das heutige Schema ohne die neue Spalte ist genau der alte Stand.
+    alt = SCHEMA.replace("    difficulty_snowshoe TEXT,\n", "")
+    assert "difficulty_snowshoe" not in alt
+
+    connection = sqlite3.connect(target)
+    connection.executescript(alt)
+    connection.execute(
+        "INSERT INTO tours (source_url, title, created_at, updated_at) "
+        "VALUES ('https://x/alt.html', 'Alte Tour', 'frueher', 'frueher')"
+    )
+    connection.commit()
+    connection.close()
+
+    with TourStore(target) as store:
+        spalten = {row["name"] for row in store.connection.execute("PRAGMA table_info(tours)")}
+
+        assert "difficulty_snowshoe" in spalten
+        assert store.get_by_url("https://x/alt.html")["title"] == "Alte Tour"
+        assert store.get_by_url("https://x/alt.html")["difficulty_snowshoe"] is None
+
+
+def test_the_guard_catches_the_default_path() -> None:
+    """Voraussetzung: Ein Test, der die echte Ablage oeffnet, faellt auf."""
+    with pytest.raises(AssertionError, match="Tests muessen tmp_path"):
+        TourStore()

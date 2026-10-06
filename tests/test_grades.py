@@ -1,6 +1,7 @@
 import pytest
 
 from parsers.grades import (
+    GRADE_SCALES,
     TOUR_TYPES,
     grade_matches,
     grade_terms,
@@ -108,3 +109,26 @@ def test_scale_from_listing_title() -> None:
     assert scale_from_title("Wandern Schwierigkeit") == "wandern"
     assert scale_from_title("Ski Schwierigkeit") == "ski"
     assert scale_from_title("Mountainbike Schwierigkeit") == "mountainbike"
+
+
+# --- Schneeschuhskala ---------------------------------------------------------
+
+
+def test_wt_grades_are_grades() -> None:
+    """Hikr fuehrt fuer Schneeschuhtouren die WT Skala, WT1 bis WT6."""
+    assert is_grade("WT3")
+    assert is_grade("wt6")
+    assert not is_grade("WT7")
+    assert not is_grade("WT")
+
+
+def test_wt_grades_are_compared_exactly() -> None:
+    assert grade_matches("WT3 - Anspruchsvolle Schneeschuhwanderung", "wt3")
+    assert not grade_matches("WT4 - Schneeschuhtour", "wt3")
+    assert not grade_matches("T3", "wt3")
+
+
+def test_the_snowshoe_scale_counts_on_listings() -> None:
+    """Hikr schreibt sie ohne das erste c, darum steht sie so in GRADE_SCALES."""
+    assert scale_from_title("Schneeshuhtouren Schwierigkeit") == "schneeshuhtouren"
+    assert "schneeshuhtouren" in GRADE_SCALES
