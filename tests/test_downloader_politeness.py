@@ -254,3 +254,49 @@ def test_building_the_polite_downloader_makes_no_request(scripted) -> None:
     build_polite_downloader()
 
     assert scripted["calls"] == []
+
+
+# --- Lange Pausen werden gemeldet ---------------------------------------
+
+
+def test_a_long_wait_says_why(scripted, fake_clock, capsys) -> None:
+    """
+    Eine stille Pause von fuenf Minuten sieht aus wie ein haengender Lauf.
+
+    Genau so ging ein Lauf ueber Wallis verloren: Er wartete brav, wie Hikr
+    es verlangte, und von aussen war nicht zu sehen, worauf.
+    """
+    scripted["queue"] = [
+        Response(429, headers={"Retry-After": "120"}),
+        Response(200, text="<html>Liste</html>"),
+    ]
+
+    polite(fake_clock).fetch_html(URL)
+
+    ausgabe = capsys.readouterr().out
+    assert "warte 120 s" in ausgabe
+    assert "Retry-After" in ausgabe
+
+
+def test_a_retry_after_a_network_error_says_so(scripted, fake_clock, capsys) -> None:
+    scripted["queue"] = [
+        requests.ConnectionError("Netz weg"),
+        Response(200, text="<html>Liste</html>"),
+    ]
+
+    polite(fake_clock).fetch_html(URL)
+
+    ausgabe = capsys.readouterr().out
+    assert "warte 15 s" in ausgabe
+    assert "Netzfehler" in ausgabe
+
+
+def test_the_normal_throttle_stays_quiet(scripted, fake_clock, capsys) -> None:
+    """Zwei Sekunden zwischen Anfragen muss niemand gemeldet bekommen."""
+    scripted["queue"] = [Response(200, text="a"), Response(200, text="b")]
+    downloader = polite(fake_clock)
+
+    downloader.fetch_html(URL)
+    downloader.fetch_html("https://www.hikr.org/region146/ped/")
+
+    assert "warte" not in capsys.readouterr().out

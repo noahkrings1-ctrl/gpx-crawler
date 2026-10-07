@@ -17,6 +17,10 @@ from .politeness import (
 )
 
 
+# Ab dieser Laenge wird eine Pause gemeldet. Kuerzere sind die normale
+# Drossel und wuerden die Ausgabe nur zumuellen.
+PAUSE_NOTICE_SECONDS = 5.0
+
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -199,7 +203,10 @@ class Downloader:
             except requests.RequestException as exc:
                 if self._may_retry(attempt):
                     attempt += 1
-                    self._pause(self.retry.backoff(attempt))
+                    self._pause(
+                        self.retry.backoff(attempt),
+                        f"Netzfehler, Versuch {attempt + 1}",
+                    )
                     continue
                 raise TransientDownloadError(
                     f"Network error while {verb} {url}: {exc}"
@@ -227,7 +234,7 @@ class Downloader:
                     and retry_after <= self.retry.max_retry_after_seconds
                 ):
                     waited_for_retry_after = True
-                    self._pause(retry_after)
+                    self._pause(retry_after, "Hikr bremst mit Retry-After")
                     continue
                 raise CrawlBlockedError(
                     f"Failed to {action} {url}: HTTP 429, too many requests"
@@ -235,7 +242,10 @@ class Downloader:
             if status in RETRYABLE_STATUS:
                 if self._may_retry(attempt):
                     attempt += 1
-                    self._pause(self.retry.backoff(attempt))
+                    self._pause(
+                        self.retry.backoff(attempt),
+                        f"HTTP {status}, Versuch {attempt + 1}",
+                    )
                     continue
                 raise TransientDownloadError(f"Failed to {action} {url}: HTTP {status}")
 
@@ -244,7 +254,16 @@ class Downloader:
     def _may_retry(self, attempt: int) -> bool:
         return self.retry is not None and attempt < self.retry.max_retries
 
-    def _pause(self, seconds: float) -> None:
+    def _pause(self, seconds: float, reason: str = "") -> None:
+        """
+        Wartet und sagt ab einer spuerbaren Laenge, warum.
+
+        Eine stille Pause von fuenf Minuten sieht aus wie ein haengender
+        Lauf. Genau so ging ein Lauf ueber Wallis verloren: Er wartete brav,
+        wie Hikr es verlangte, und von aussen war nicht zu sehen, worauf.
+        """
+        if seconds >= PAUSE_NOTICE_SECONDS:
+            print(f"    warte {seconds:.0f} s{f', {reason}' if reason else ''}")
         if self.limiter is not None:
             self.limiter.pause(seconds)
         elif seconds > 0:
